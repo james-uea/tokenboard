@@ -1,0 +1,26 @@
+{
+  "name": "tokenboard-server",
+  "version": "1.0.6",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "migrate": "node migrate.js",
+    "build": "npm run frontend:build",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.1.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0",
+    "vitest": "^4.1.6"
+  }
+}
