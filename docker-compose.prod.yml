@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"${POSTGRES_USER}\" -d \"${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: "production"
+      PORT: "3001"
+      API_KEY: "${API_KEY:-}"
+      ALLOW_LEGACY_API_KEY: "${ALLOW_LEGACY_API_KEY:-false}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      APP_BASE_URL: "${APP_BASE_URL}"
+      SESSION_SECRET: "${SESSION_SECRET}"
+      GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET}"
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
+      TRUST_CLOUDFLARE_HEADERS: "${TRUST_CLOUDFLARE_HEADERS:-true}"
+      FORCE_HTTPS: "${FORCE_HTTPS:-true}"
+      JSON_BODY_LIMIT: "${JSON_BODY_LIMIT:-256kb}"
+      RATE_LIMIT_ENABLED: "${RATE_LIMIT_ENABLED:-true}"
+      RATE_LIMIT_WINDOW_MS: "${RATE_LIMIT_WINDOW_MS:-900000}"
+      API_RATE_LIMIT: "${API_RATE_LIMIT:-600}"
+      AUTH_RATE_LIMIT: "${AUTH_RATE_LIMIT:-60}"
+      CLI_POLL_RATE_LIMIT: "${CLI_POLL_RATE_LIMIT:-180}"
+      SUBMIT_RATE_LIMIT: "${SUBMIT_RATE_LIMIT:-60}"
+      GITHUB_PROXY_RATE_LIMIT: "${GITHUB_PROXY_RATE_LIMIT:-120}"
+    expose:
+      - "3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

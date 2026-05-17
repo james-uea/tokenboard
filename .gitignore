@@ -1,0 +1,31 @@
+# Node dependencies
+node_modules/
+server/node_modules/
+server/frontend/node_modules/
+
+# Rust build output
+client/target/
+**/target/
+
+# Frontend/server build output
+server/public/
+server/frontend/dist/
+
+# Local environment
+.env
+.env.backup
+.env.production
+.env.local
+.env.*.local
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+*.log
+logs/
+backups/
+output/
+
+# Test and coverage output
+coverage/

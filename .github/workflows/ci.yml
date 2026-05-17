@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server and frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            server/frontend/package-lock.json
+
+      - name: Install server dependencies
+        run: npm ci --prefix server
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix server/frontend
+
+      - name: Run server tests
+        run: npm --prefix server test
+
+      - name: Build frontend
+        run: npm --prefix server run frontend:build
+
+  client:
+    name: Rust client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run client tests
+        run: cargo test --manifest-path client/Cargo.toml --locked

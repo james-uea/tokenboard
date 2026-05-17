@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tokenboard
+      POSTGRES_PASSWORD: tokenboard
+      POSTGRES_DB: tokenboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokenboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build: ./server
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      PORT: "${PORT:-3001}"
+      API_KEY: "${API_KEY:-change-me}"
+      ALLOW_LEGACY_API_KEY: "${ALLOW_LEGACY_API_KEY:-false}"
+      DATABASE_URL: "postgresql://tokenboard:tokenboard@postgres:5432/tokenboard"
+      APP_BASE_URL: "${APP_BASE_URL:-http://localhost:3001}"
+      SESSION_SECRET: "${SESSION_SECRET:-change-me}"
+      GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
