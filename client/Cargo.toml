@@ -23,7 +23,7 @@ clap = { version = "4", features = ["derive"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 csv = "1"
-directories = "5"
+directories = "6"
 semver = "1"
 sha2 = "0.10"
 
