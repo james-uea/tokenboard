@@ -16,7 +16,7 @@ Environment:
   TOKENBOARD_REPO         GitHub repo to download from. Default: james-uea/tokenboard
   TOKENBOARD_VERSION      Release tag to install, or "latest". Default: latest
   TOKENBOARD_INSTALL_DIR  Install directory. Default: /usr/local/bin or ~/.local/bin
-  GITHUB_TOKEN            Optional token for authenticated release downloads when gh is unavailable
+  GITHUB_TOKEN            Optional token for authenticated direct release downloads
 USAGE
 }
 
@@ -108,6 +108,22 @@ download_with_gh() {
     checksum_args=(release download "$VERSION" --repo "$REPO" --pattern "$asset.sha256" --dir "$tmp" --clobber)
   fi
   gh "${checksum_args[@]}" >/dev/null 2>&1 || true
+
+  [[ -f "$tmp/$asset" ]]
+}
+
+can_use_gh() {
+  command -v gh >/dev/null 2>&1 || return 1
+  gh auth status >/dev/null 2>&1
+}
+
+curl_download() {
+  local output="$1" url="$2"
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    curl -fL -H "Authorization: Bearer $GITHUB_TOKEN" -o "$output" "$url"
+  else
+    curl -fL -o "$output" "$url"
+  fi
 }
 
 download_with_curl() {
@@ -119,17 +135,12 @@ download_with_curl() {
     release_path="download/$VERSION"
   fi
 
-  local headers=()
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    headers=(-H "Authorization: Bearer $GITHUB_TOKEN")
-  fi
-
-  curl -fL "${headers[@]}" \
-    -o "$tmp/$asset" \
+  curl_download \
+    "$tmp/$asset" \
     "https://github.com/$REPO/releases/$release_path/$asset"
 
-  curl -fL "${headers[@]}" \
-    -o "$tmp/$asset.sha256" \
+  curl_download \
+    "$tmp/$asset.sha256" \
     "https://github.com/$REPO/releases/$release_path/$asset.sha256" >/dev/null 2>&1 || true
 }
 
@@ -203,12 +214,15 @@ main() {
   echo "Installing Tokenboard from $REPO ($VERSION)"
   echo "Detected release asset: $asset"
 
-  if command -v gh >/dev/null 2>&1; then
+  if can_use_gh; then
     if ! download_with_gh "$asset" "$tmp"; then
       echo "GitHub CLI download failed; trying direct release download." >&2
       download_with_curl "$asset" "$tmp"
     fi
   else
+    if command -v gh >/dev/null 2>&1; then
+      echo "GitHub CLI is installed but not authenticated; using direct release download." >&2
+    fi
     download_with_curl "$asset" "$tmp"
   fi
 
