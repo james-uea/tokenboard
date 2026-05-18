@@ -1307,7 +1307,15 @@ watch(authUser, () => {
     <header class="app-header">
       <div class="app-header-left">
         <h1 @click="goToLeaderboard" class="logo-link">Tokenboard</h1>
-        <p>AI coding agent token usage across your team</p>
+        <a
+          class="repo-link header-install-link"
+          href="https://github.com/james-uea/tokenboard#quick-start"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Install the Tokenboard CLI from GitHub"
+        >
+          Install the CLI
+        </a>
       </div>
 
       <div class="app-header-actions">
