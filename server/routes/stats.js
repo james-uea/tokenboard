@@ -164,17 +164,18 @@ router.get("/:username/diffs", async (req, res) => {
 	try {
 		const timelineResult = await pool.query(
 			`SELECT
-         s.date,
-         s.total_tokens::bigint AS total_tokens,
-         s.total_cost::numeric(14,6) AS total_cost,
-         s.input_tokens::bigint AS input_tokens,
-         s.output_tokens::bigint AS output_tokens,
-         s.cache_read_tokens::bigint AS cache_read_tokens,
-         s.cache_write_tokens::bigint AS cache_write_tokens,
-         s.reasoning_tokens::bigint AS reasoning_tokens
+		 s.date,
+		 SUM(s.total_tokens)::bigint AS total_tokens,
+		 SUM(s.total_cost)::numeric(14,6) AS total_cost,
+		 SUM(s.input_tokens)::bigint AS input_tokens,
+		 SUM(s.output_tokens)::bigint AS output_tokens,
+		 SUM(s.cache_read_tokens)::bigint AS cache_read_tokens,
+		 SUM(s.cache_write_tokens)::bigint AS cache_write_tokens,
+		 SUM(s.reasoning_tokens)::bigint AS reasoning_tokens
         FROM submissions s
         JOIN users u ON u.id = s.user_id
         WHERE u.username = $1
+		GROUP BY s.date
         ORDER BY s.date ASC`,
 			[normalizedUsername],
 		);
@@ -239,17 +240,18 @@ router.get("/:username", async (req, res) => {
 		const row = summaryResult.rows[0];
 		const timelineResult = await pool.query(
 			`SELECT
-         s.date,
-         s.total_tokens::bigint AS total_tokens,
-         s.total_cost::numeric(14,6) AS total_cost,
-         s.input_tokens::bigint AS input_tokens,
-         s.output_tokens::bigint AS output_tokens,
-         s.cache_read_tokens::bigint AS cache_read_tokens,
-         s.cache_write_tokens::bigint AS cache_write_tokens,
-         s.reasoning_tokens::bigint AS reasoning_tokens
+		 s.date,
+		 SUM(s.total_tokens)::bigint AS total_tokens,
+		 SUM(s.total_cost)::numeric(14,6) AS total_cost,
+		 SUM(s.input_tokens)::bigint AS input_tokens,
+		 SUM(s.output_tokens)::bigint AS output_tokens,
+		 SUM(s.cache_read_tokens)::bigint AS cache_read_tokens,
+		 SUM(s.cache_write_tokens)::bigint AS cache_write_tokens,
+		 SUM(s.reasoning_tokens)::bigint AS reasoning_tokens
         FROM submissions s
         JOIN users u ON u.id = s.user_id
         WHERE u.username = $1
+		GROUP BY s.date
         ORDER BY s.date ASC`,
 			[normalizedUsername]
 		);

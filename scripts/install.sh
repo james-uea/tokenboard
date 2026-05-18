@@ -54,11 +54,14 @@ detect_asset() {
       esac
       ;;
     Linux)
-      if [[ "$arch" != "x86_64" ]]; then
-        echo "Linux release builds currently support x86_64 only." >&2
-        exit 1
-      fi
-      echo "tokenboard-x86_64-unknown-linux-gnu"
+      case "$arch" in
+        x86_64) echo "tokenboard-x86_64-unknown-linux-gnu" ;;
+        aarch64) echo "tokenboard-aarch64-unknown-linux-gnu" ;;
+        *)
+          echo "Linux release builds currently support x86_64 and aarch64 only." >&2
+          exit 1
+          ;;
+      esac
       ;;
     MINGW*|MSYS*|CYGWIN*)
       if [[ "$arch" != "x86_64" ]]; then

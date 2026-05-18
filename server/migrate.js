@@ -31,6 +31,7 @@ ALTER TABLE users
 CREATE TABLE IF NOT EXISTS submissions (
   id SERIAL PRIMARY KEY,
   user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  device_key VARCHAR(128) NOT NULL DEFAULT 'legacy',
   date DATE NOT NULL,
   total_tokens BIGINT NOT NULL DEFAULT 0,
   total_cost NUMERIC(14,6) NOT NULL DEFAULT 0,
@@ -42,8 +43,28 @@ CREATE TABLE IF NOT EXISTS submissions (
   models JSONB DEFAULT '{}',
   clients JSONB DEFAULT '{}',
   submitted_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, date)
+  UNIQUE(user_id, device_key, date)
 );
+
+ALTER TABLE submissions
+  ADD COLUMN IF NOT EXISTS device_key VARCHAR(128) NOT NULL DEFAULT 'legacy';
+
+UPDATE submissions
+SET device_key = 'legacy'
+WHERE device_key IS NULL OR BTRIM(device_key) = '';
+
+ALTER TABLE submissions
+  ALTER COLUMN device_key SET NOT NULL,
+  ALTER COLUMN device_key SET DEFAULT 'legacy';
+
+ALTER TABLE submissions
+  DROP CONSTRAINT IF EXISTS submissions_user_id_date_key;
+
+ALTER TABLE submissions
+  DROP CONSTRAINT IF EXISTS submissions_user_id_device_key_date_key;
+
+ALTER TABLE submissions
+  ADD CONSTRAINT submissions_user_id_device_key_date_key UNIQUE (user_id, device_key, date);
 
 ALTER TABLE submissions
   ALTER COLUMN models SET DEFAULT '{}'::jsonb,
@@ -62,6 +83,7 @@ ALTER TABLE submissions
   ALTER COLUMN clients SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_submissions_user_date ON submissions(user_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_submissions_user_device_date ON submissions(user_id, device_key, date DESC);
 CREATE INDEX IF NOT EXISTS idx_submissions_date ON submissions(date DESC);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github_id ON users(github_id) WHERE github_id IS NOT NULL;

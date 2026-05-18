@@ -375,6 +375,7 @@ describe("submission authentication", () => {
 			}
 			if (String(sql).includes("INSERT INTO submissions")) {
 				expect(params[0]).toBe(7);
+				expect(params[1]).toBe("token:99");
 				return Promise.resolve({ rows: [] });
 			}
 			throw new Error(`Unexpected submit query: ${sql}`);

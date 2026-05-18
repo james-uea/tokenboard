@@ -94,6 +94,7 @@ Release assets are built for:
 | --- | --- |
 | macOS Apple Silicon | `tokenboard-aarch64-apple-darwin` |
 | macOS Intel | `tokenboard-x86_64-apple-darwin` |
+| Linux ARM64 | `tokenboard-aarch64-unknown-linux-gnu` |
 | Linux x86_64 | `tokenboard-x86_64-unknown-linux-gnu` |
 | Windows x86_64 | `tokenboard-x86_64-pc-windows-msvc.exe` |
 

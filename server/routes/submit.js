@@ -174,6 +174,10 @@ router.post("/", authMiddleware, async (req, res) => {
 			.json({ error: `display_name must be <= ${MAX_DISPLAY_NAME_LENGTH} characters` });
 	}
 	const normalizedDisplayName = normalizedDisplayNameRaw;
+	const deviceSubmissionKey =
+		req.auth?.type === "user_api_token" && Number.isInteger(req.auth.token_id)
+			? `token:${req.auth.token_id}`
+			: "legacy";
 
 	if (!normalizedDisplayName) {
 		return res.status(400).json({ error: "display_name cannot be empty" });
@@ -284,12 +288,12 @@ router.post("/", authMiddleware, async (req, res) => {
 
 			await client.query(
 				`INSERT INTO submissions
-           (user_id, date, total_tokens, total_cost,
+	         	(user_id, device_key, date, total_tokens, total_cost,
             input_tokens, output_tokens,
             cache_read_tokens, cache_write_tokens, reasoning_tokens,
             models, clients)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         ON CONFLICT (user_id, date) DO UPDATE SET
+	         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	         ON CONFLICT (user_id, device_key, date) DO UPDATE SET
            total_tokens = EXCLUDED.total_tokens,
            total_cost = EXCLUDED.total_cost,
            input_tokens = EXCLUDED.input_tokens,
@@ -302,6 +306,7 @@ router.post("/", authMiddleware, async (req, res) => {
            submitted_at = NOW()`,
 				[
 					userId,
+					deviceSubmissionKey,
 					date,
 					total_tokens,
 					total_cost,
