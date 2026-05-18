@@ -13,8 +13,21 @@ Use this path to install the CLI and sign in to the hosted Tokenboard server.
 During setup, press Enter to keep `https://tokenboard.net`, or choose a custom
 self-hosted server URL when prompted.
 
+macOS and Linux:
+
 ```bash
 curl -fsSL https://tokenboard.net/install.sh | bash
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://tokenboard.net/install.ps1 | iex
+```
+
+Then finish setup:
+
+```bash
 tokenboard --version
 tokenboard setup
 tokenboard scan
@@ -86,7 +99,8 @@ records, API tokens, prompts, transcripts, or local file data to those services.
 
 The installer downloads the matching binary from GitHub Releases, verifies the
 `.sha256` checksum when available, and installs `tokenboard` to `/usr/local/bin`
-or `~/.local/bin`.
+or `~/.local/bin` on macOS/Linux, or `tokenboard.exe` to the user's
+`Microsoft\WindowsApps` directory on Windows.
 
 Release assets are built for:
 
@@ -94,7 +108,8 @@ Release assets are built for:
 | --- | --- |
 | macOS Apple Silicon | `tokenboard-aarch64-apple-darwin` |
 | macOS Intel | `tokenboard-x86_64-apple-darwin` |
-| Linux x86_64 | `tokenboard-x86_64-unknown-linux-gnu` |
+| Linux x86_64 | `tokenboard-x86_64-unknown-linux-musl` |
+| Linux x86_64 GNU fallback | `tokenboard-x86_64-unknown-linux-gnu` |
 | Windows x86_64 | `tokenboard-x86_64-pc-windows-msvc.exe` |
 
 Installer options:

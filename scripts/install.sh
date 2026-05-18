@@ -32,7 +32,7 @@ need() {
   }
 }
 
-detect_asset() {
+detect_assets() {
   local os arch
   os="$(uname -s)"
   arch="$(uname -m)"
@@ -58,6 +58,7 @@ detect_asset() {
         echo "Linux release builds currently support x86_64 only." >&2
         exit 1
       fi
+      echo "tokenboard-x86_64-unknown-linux-musl"
       echo "tokenboard-x86_64-unknown-linux-gnu"
       ;;
     MINGW*|MSYS*|CYGWIN*)
@@ -101,7 +102,7 @@ download_with_gh() {
     args=(release download "$VERSION" --repo "$REPO" --pattern "$asset" --dir "$tmp" --clobber)
   fi
 
-  gh "${args[@]}"
+  gh "${args[@]}" || return 1
 
   local checksum_args=(release download --repo "$REPO" --pattern "$asset.sha256" --dir "$tmp" --clobber)
   if [[ "$VERSION" != "latest" ]]; then
@@ -135,9 +136,11 @@ download_with_curl() {
     release_path="download/$VERSION"
   fi
 
+  rm -f "$tmp/$asset" "$tmp/$asset.sha256"
+
   curl_download \
     "$tmp/$asset" \
-    "https://github.com/$REPO/releases/$release_path/$asset"
+    "https://github.com/$REPO/releases/$release_path/$asset" || return 1
 
   curl_download \
     "$tmp/$asset.sha256" \
@@ -196,8 +199,12 @@ install_binary() {
 }
 
 main() {
-  local asset tmp install_dir install_name
-  asset="$(detect_asset)"
+  local asset candidate tmp install_dir install_name
+  local assets=()
+  while IFS= read -r candidate; do
+    assets+=("$candidate")
+  done < <(detect_assets)
+  asset=""
   tmp="$(mktemp -d)"
   TOKENBOARD_TMP_DIR="$tmp"
   install_dir="$(choose_install_dir)"
@@ -214,19 +221,38 @@ main() {
   trap cleanup EXIT
 
   echo "Installing Tokenboard from $REPO ($VERSION)"
-  echo "Detected release asset: $asset"
+  echo "Detected release assets: ${assets[*]}"
 
-  if can_use_gh; then
-    if ! download_with_gh "$asset" "$tmp"; then
-      echo "GitHub CLI download failed; trying direct release download." >&2
-      download_with_curl "$asset" "$tmp"
+  for candidate in "${assets[@]}"; do
+    echo "Trying release asset: $candidate"
+    if can_use_gh; then
+      if download_with_gh "$candidate" "$tmp"; then
+        asset="$candidate"
+        break
+      fi
+      echo "GitHub CLI download failed for $candidate; trying direct release download." >&2
+      if download_with_curl "$candidate" "$tmp"; then
+        asset="$candidate"
+        break
+      fi
+    else
+      if command -v gh >/dev/null 2>&1; then
+        echo "GitHub CLI is installed but not authenticated; using direct release download." >&2
+      fi
+      if download_with_curl "$candidate" "$tmp"; then
+        asset="$candidate"
+        break
+      fi
     fi
-  else
-    if command -v gh >/dev/null 2>&1; then
-      echo "GitHub CLI is installed but not authenticated; using direct release download." >&2
-    fi
-    download_with_curl "$asset" "$tmp"
+    echo "Release asset unavailable: $candidate" >&2
+  done
+
+  if [[ -z "$asset" ]]; then
+    echo "No compatible Tokenboard release asset was found for this platform." >&2
+    exit 1
   fi
+
+  echo "Selected release asset: $asset"
 
   verify_checksum "$tmp/$asset" "$tmp/$asset.sha256"
   install_binary "$tmp/$asset" "$install_dir" "$install_name"

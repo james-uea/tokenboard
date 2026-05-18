@@ -18,6 +18,8 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const INSTALLER_SCRIPT_URL =
 	"https://raw.githubusercontent.com/james-uea/tokenboard/main/scripts/install.sh";
+const WINDOWS_INSTALLER_SCRIPT_URL =
+	"https://raw.githubusercontent.com/james-uea/tokenboard/main/scripts/install.ps1";
 
 function getIntegerEnv(name, defaultValue) {
 	const parsed = Number.parseInt(process.env[name] || "", 10);
@@ -257,6 +259,11 @@ app.get("/readyz", async (_req, res) => {
 app.get("/install.sh", (_req, res) => {
 	res.setHeader("Cache-Control", "public, max-age=300");
 	res.redirect(302, INSTALLER_SCRIPT_URL);
+});
+
+app.get("/install.ps1", (_req, res) => {
+	res.setHeader("Cache-Control", "public, max-age=300");
+	res.redirect(302, WINDOWS_INSTALLER_SCRIPT_URL);
 });
 
 // API routes

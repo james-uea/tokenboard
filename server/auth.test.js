@@ -86,11 +86,21 @@ describe("health checks", () => {
 });
 
 describe("installer script", () => {
-	it("redirects the public install path to the GitHub-hosted script", async () => {
+	it("redirects the public Bash install path to the GitHub-hosted script", async () => {
 		const response = await request(app).get("/install.sh").expect(302);
 
 		expect(response.headers.location).toBe(
 			"https://raw.githubusercontent.com/james-uea/tokenboard/main/scripts/install.sh",
+		);
+		expect(response.headers["cache-control"]).toBe("public, max-age=300");
+		expect(mockDb.query).not.toHaveBeenCalled();
+	});
+
+	it("redirects the public PowerShell install path to the GitHub-hosted script", async () => {
+		const response = await request(app).get("/install.ps1").expect(302);
+
+		expect(response.headers.location).toBe(
+			"https://raw.githubusercontent.com/james-uea/tokenboard/main/scripts/install.ps1",
 		);
 		expect(response.headers["cache-control"]).toBe("public, max-age=300");
 		expect(mockDb.query).not.toHaveBeenCalled();

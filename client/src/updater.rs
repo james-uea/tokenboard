@@ -210,16 +210,21 @@ fn ensure_success(response: Response, action: &str) -> Result<Response> {
 }
 
 fn select_asset(assets: &[GithubAsset]) -> Option<&GithubAsset> {
-    let expected = platform_asset_name()?;
-    assets.iter().find(|asset| asset.name == expected)
+    let expected = platform_asset_names()?;
+    expected
+        .iter()
+        .find_map(|name| assets.iter().find(|asset| asset.name == *name))
 }
 
-fn platform_asset_name() -> Option<&'static str> {
+fn platform_asset_names() -> Option<&'static [&'static str]> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("linux", "x86_64") => Some("tokenboard-x86_64-unknown-linux-gnu"),
-        ("macos", "aarch64") => Some("tokenboard-aarch64-apple-darwin"),
-        ("macos", "x86_64") => Some("tokenboard-x86_64-apple-darwin"),
-        ("windows", "x86_64") => Some("tokenboard-x86_64-pc-windows-msvc.exe"),
+        ("linux", "x86_64") => Some(&[
+            "tokenboard-x86_64-unknown-linux-musl",
+            "tokenboard-x86_64-unknown-linux-gnu",
+        ]),
+        ("macos", "aarch64") => Some(&["tokenboard-aarch64-apple-darwin"]),
+        ("macos", "x86_64") => Some(&["tokenboard-x86_64-apple-darwin"]),
+        ("windows", "x86_64") => Some(&["tokenboard-x86_64-pc-windows-msvc.exe"]),
         _ => None,
     }
 }
@@ -529,14 +534,28 @@ mod tests {
 
     #[test]
     fn selects_current_platform_asset_when_supported() {
-        let expected = platform_asset_name();
+        let expected = platform_asset_names();
         let mut assets = vec![asset("other")];
         if let Some(expected) = expected {
-            assets.push(asset(expected));
-            assert_eq!(select_asset(&assets).unwrap().name, expected);
+            assets.push(asset(expected[0]));
+            assert_eq!(select_asset(&assets).unwrap().name, expected[0]);
         } else {
             assert!(select_asset(&assets).is_none());
         }
+    }
+
+    #[test]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn linux_prefers_musl_release_asset() {
+        let assets = vec![
+            asset("tokenboard-x86_64-unknown-linux-gnu"),
+            asset("tokenboard-x86_64-unknown-linux-musl"),
+        ];
+
+        assert_eq!(
+            select_asset(&assets).unwrap().name,
+            "tokenboard-x86_64-unknown-linux-musl"
+        );
     }
 
     #[test]
