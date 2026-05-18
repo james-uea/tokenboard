@@ -2,6 +2,13 @@
 
 All notable changes to Tokenboard will be documented in this file.
 
+## 1.0.11 - 2026-05-18
+
+- Add static Linux ARM64 and 32-bit ARM release assets for Raspberry Pi and
+  other ARM Linux systems.
+- Teach the Bash installer and CLI updater to select the matching Linux ARM
+  asset.
+
 ## 1.0.10 - 2026-05-18
 
 - Remove the unsafe Linux GNU/glibc fallback from the installer and updater;

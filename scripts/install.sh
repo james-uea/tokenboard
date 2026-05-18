@@ -40,6 +40,7 @@ detect_assets() {
   case "$arch" in
     x86_64|amd64) arch="x86_64" ;;
     arm64|aarch64) arch="aarch64" ;;
+    armv6l|armv6|armv7l|armv7|armhf) arch="arm" ;;
     *)
       echo "Unsupported CPU architecture: $arch" >&2
       exit 1
@@ -54,11 +55,15 @@ detect_assets() {
       esac
       ;;
     Linux)
-      if [[ "$arch" != "x86_64" ]]; then
-        echo "Linux release builds currently support x86_64 only." >&2
-        exit 1
-      fi
-      echo "tokenboard-x86_64-unknown-linux-musl"
+      case "$arch" in
+        x86_64) echo "tokenboard-x86_64-unknown-linux-musl" ;;
+        aarch64) echo "tokenboard-aarch64-unknown-linux-musl" ;;
+        arm) echo "tokenboard-arm-unknown-linux-musleabihf" ;;
+        *)
+          echo "Unsupported Linux CPU architecture: $arch" >&2
+          exit 1
+          ;;
+      esac
       ;;
     MINGW*|MSYS*|CYGWIN*)
       if [[ "$arch" != "x86_64" ]]; then

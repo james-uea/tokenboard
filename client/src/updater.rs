@@ -223,6 +223,8 @@ fn platform_asset_names() -> Option<&'static [&'static str]> {
 fn platform_asset_names_for(os: &str, arch: &str) -> Option<&'static [&'static str]> {
     match (os, arch) {
         ("linux", "x86_64") => Some(&["tokenboard-x86_64-unknown-linux-musl"]),
+        ("linux", "aarch64") => Some(&["tokenboard-aarch64-unknown-linux-musl"]),
+        ("linux", "arm") => Some(&["tokenboard-arm-unknown-linux-musleabihf"]),
         ("macos", "aarch64") => Some(&["tokenboard-aarch64-apple-darwin"]),
         ("macos", "x86_64") => Some(&["tokenboard-x86_64-apple-darwin"]),
         ("windows", "x86_64") => Some(&["tokenboard-x86_64-pc-windows-msvc.exe"]),
@@ -546,10 +548,22 @@ mod tests {
     }
 
     #[test]
-    fn linux_uses_only_musl_release_asset() {
+    fn linux_x86_64_uses_only_musl_release_asset() {
         assert_eq!(
             platform_asset_names_for("linux", "x86_64").unwrap(),
             ["tokenboard-x86_64-unknown-linux-musl"]
+        );
+    }
+
+    #[test]
+    fn linux_arm_uses_static_release_assets() {
+        assert_eq!(
+            platform_asset_names_for("linux", "aarch64").unwrap(),
+            ["tokenboard-aarch64-unknown-linux-musl"]
+        );
+        assert_eq!(
+            platform_asset_names_for("linux", "arm").unwrap(),
+            ["tokenboard-arm-unknown-linux-musleabihf"]
         );
     }
 

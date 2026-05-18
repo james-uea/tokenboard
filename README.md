@@ -109,6 +109,8 @@ Release assets are built for:
 | macOS Apple Silicon | `tokenboard-aarch64-apple-darwin` |
 | macOS Intel | `tokenboard-x86_64-apple-darwin` |
 | Linux x86_64 | `tokenboard-x86_64-unknown-linux-musl` |
+| Linux ARM64 / Raspberry Pi 64-bit | `tokenboard-aarch64-unknown-linux-musl` |
+| Linux ARMv6/ARMv7 / Raspberry Pi 32-bit | `tokenboard-arm-unknown-linux-musleabihf` |
 | Windows x86_64 | `tokenboard-x86_64-pc-windows-msvc.exe` |
 
 Installer options:
