@@ -2,6 +2,11 @@
 
 All notable changes to Tokenboard will be documented in this file.
 
+## 1.0.13 - 2026-05-18
+
+- Fix Gemini CLI scanning for current `.jsonl` chat session files while
+  preserving support for older single-document JSON session exports.
+
 ## 1.0.12 - 2026-05-18
 
 - Resolve `latest` to a concrete GitHub release tag in the Bash and PowerShell

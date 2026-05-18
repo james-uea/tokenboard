@@ -8,7 +8,7 @@ use crate::scanner::{ScanFilter, TokenUsage};
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 // ============================================================================
@@ -38,31 +38,39 @@ pub fn parse_jsonl_file(
     // Dedup map for Claude streaming duplicates: dedup_key → index in usages
     let mut claude_dedup: HashMap<String, usize> = HashMap::new();
 
-    // Gemini stores data as JSON (arrays or objects), not JSONL.
-    // Read the entire file and iterate entries.
+    // Gemini stores older/exported sessions as a single JSON document and
+    // current sessions as JSONL. Try the full document first, then JSONL.
     if agent == "gemini" {
-        let file =
+        let mut file =
             std::fs::File::open(path).with_context(|| format!("Cannot open {}", path.display()))?;
-        let reader = BufReader::new(file);
-        let contents: String = reader.lines().collect::<std::io::Result<String>>()?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .with_context(|| format!("Cannot read {}", path.display()))?;
         if contents.trim().is_empty() {
             return Ok(usages);
         }
-        let root: serde_json::Value = serde_json::from_str(&contents)?;
-        // Collect entries — unwrap session wrappers with `messages` array
-        let mut raw_entries: Vec<&serde_json::Value> = Vec::new();
-        let top_level = if root.is_array() {
-            root.as_array().unwrap().iter().collect()
+
+        let mut raw_entries: Vec<serde_json::Value> = Vec::new();
+        if let Ok(root) = serde_json::from_str::<serde_json::Value>(&contents) {
+            collect_gemini_entries(&root, &mut raw_entries);
         } else {
-            vec![&root]
-        };
-        for entry in top_level {
-            if let Some(msgs) = entry.get("messages").and_then(|v| v.as_array()) {
-                raw_entries.extend(msgs.iter());
-            } else {
-                raw_entries.push(entry);
+            for (line_idx, line) in contents.lines().enumerate() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let value: serde_json::Value =
+                    serde_json::from_str(trimmed).with_context(|| {
+                        format!(
+                            "Invalid Gemini JSONL in {} at line {}",
+                            path.display(),
+                            line_idx + 1
+                        )
+                    })?;
+                collect_gemini_entries(&value, &mut raw_entries);
             }
-        }
+        };
+
         let fallback_ts = file_modified_timestamp(path);
         for value in &raw_entries {
             if let Some(usage) = extract_jsonl(agent, value, &session_id, fallback_ts, path) {
@@ -155,6 +163,18 @@ pub fn parse_jsonl_file(
     }
 
     Ok(usages)
+}
+
+fn collect_gemini_entries(value: &serde_json::Value, entries: &mut Vec<serde_json::Value>) {
+    if let Some(array) = value.as_array() {
+        for item in array {
+            collect_gemini_entries(item, entries);
+        }
+    } else if let Some(messages) = value.get("messages").and_then(|v| v.as_array()) {
+        entries.extend(messages.iter().cloned());
+    } else {
+        entries.push(value.clone());
+    }
 }
 
 // ============================================================================
@@ -804,4 +824,58 @@ fn file_modified_timestamp(path: &Path) -> i64 {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_gemini_jsonl_session_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session-2026-05-18T18-01-06b26b6f.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"metadata","sessionId":"ignored"}"#,
+                "\n",
+                r#"{"type":"gemini","model":"gemini-2.5-pro","timestamp":"2026-05-18T18:01:06Z","tokens":{"input":120,"output":45,"cached":20,"thoughts":7}}"#,
+                "\n",
+                r#"{"type":"gemini","model":"gemini-2.5-flash","tokens":{"input":10,"output":5}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let usages = parse_jsonl_file(&path, "gemini", None, None).unwrap();
+
+        assert_eq!(usages.len(), 2);
+        assert_eq!(usages[0].model_id, "gemini-2.5-pro");
+        assert_eq!(usages[0].input_tokens, 100);
+        assert_eq!(usages[0].cache_read_tokens, 20);
+        assert_eq!(usages[0].output_tokens, 45);
+        assert_eq!(usages[0].reasoning_tokens, 7);
+        assert_eq!(usages[0].timestamp, 1_779_127_266_000);
+        assert_eq!(usages[1].model_id, "gemini-2.5-flash");
+        assert_eq!(usages[1].input_tokens, 10);
+    }
+
+    #[test]
+    fn still_parses_gemini_json_session_wrappers() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session-2026-05-18T18-01-06b26b6f.json");
+        std::fs::write(
+            &path,
+            r#"{"sessionId":"abc","messages":[{"type":"user","content":"hello"},{"type":"gemini","model":"gemini-2.5-pro","tokens":{"input":80,"output":30,"cached":10}}]}"#,
+        )
+        .unwrap();
+
+        let usages = parse_jsonl_file(&path, "gemini", None, None).unwrap();
+
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].model_id, "gemini-2.5-pro");
+        assert_eq!(usages[0].input_tokens, 70);
+        assert_eq!(usages[0].cache_read_tokens, 10);
+        assert_eq!(usages[0].output_tokens, 30);
+    }
 }
