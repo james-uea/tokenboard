@@ -120,9 +120,9 @@ can_use_gh() {
 curl_download() {
   local output="$1" url="$2"
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl -fL -H "Authorization: Bearer $GITHUB_TOKEN" -o "$output" "$url"
+    curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -o "$output" "$url"
   else
-    curl -fL -o "$output" "$url"
+    curl -fsSL -o "$output" "$url"
   fi
 }
 
@@ -174,6 +174,8 @@ verify_checksum() {
     echo "Checksum verification failed for $(basename "$file")." >&2
     exit 1
   fi
+
+  echo "Checksum verified."
 }
 
 install_binary() {
@@ -229,11 +231,22 @@ main() {
   verify_checksum "$tmp/$asset" "$tmp/$asset.sha256"
   install_binary "$tmp/$asset" "$install_dir" "$install_name"
 
-  echo "Installed $install_dir/$install_name"
-  if [[ -x "$install_dir/$install_name" ]]; then
-    "$install_dir/$install_name" --version
+  local installed_path resolved_path
+  installed_path="$install_dir/$install_name"
+
+  echo "Installed $installed_path"
+  if [[ -x "$installed_path" ]]; then
+    "$installed_path" --version
+    echo 'Next: run `tokenboard setup` to sign in with GitHub.'
+    resolved_path="$(command -v "$install_name" 2>/dev/null || true)"
+    if [[ -z "$resolved_path" ]]; then
+      echo "$install_dir is not on PATH. Add it to PATH or run $installed_path directly." >&2
+    elif [[ "$resolved_path" != "$installed_path" ]]; then
+      echo "Warning: your shell will run $resolved_path before $installed_path." >&2
+      echo "Run $installed_path directly, remove the older tokenboard, or install to $(dirname "$resolved_path")." >&2
+    fi
   elif [[ ":$PATH:" != *":$install_dir:"* ]]; then
-    echo "$install_dir is not on PATH. Add it to PATH or run $install_dir/$install_name directly." >&2
+    echo "$install_dir is not on PATH. Add it to PATH or run $installed_path directly." >&2
   fi
 }
 

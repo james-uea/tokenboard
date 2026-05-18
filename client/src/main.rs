@@ -272,7 +272,16 @@ fn main() -> Result<()> {
             date,
             client,
         }) => cmd_sync(dry_run, no_update, !no_setup, date, client)?,
-        Some(Command::Setup) => cmd_setup()?,
+        Some(Command::Setup) => {
+            if let Err(error) = cmd_setup() {
+                let message = error.to_string();
+                if message == setup_cancelled_message() {
+                    eprintln!("{message}");
+                    std::process::exit(1);
+                }
+                return Err(error);
+            }
+        }
         Some(Command::Update { command }) => cmd_update(command)?,
         Some(Command::Autosync { command }) => cmd_autosync(command)?,
         None => {
@@ -594,12 +603,12 @@ where
                 anyhow::bail!("{}", setup_login_failure_message(&cfg.api_url, &error));
             }
         }
+    } else if missing_required {
+        anyhow::bail!("{}", setup_cancelled_message());
     }
 
     if cfg.github_username.trim().is_empty() || cfg.api_token.trim().is_empty() {
-        anyhow::bail!(
-            "GitHub sign-in is required to configure Tokenboard. Run `tokenboard setup` again when you are ready to sign in."
-        );
+        anyhow::bail!("{}", setup_cancelled_message());
     }
 
     // Display name (optional, defaults to GitHub username)
@@ -664,6 +673,10 @@ fn setup_login_failure_message(api_url: &str, error: &anyhow::Error) -> String {
     format!(
         "GitHub sign-in failed for {api_url}: {detail}\nRetry setup, or check that this Tokenboard server is reachable and configured for GitHub auth."
     )
+}
+
+fn setup_cancelled_message() -> &'static str {
+    "Setup cancelled. Run `tokenboard setup` when you're ready to sign in with GitHub."
 }
 
 fn sanitize_error_message(error: &anyhow::Error) -> String {
@@ -746,11 +759,12 @@ fn run_github_login(api_url: &str) -> Result<CliLoginResult> {
     println!();
     if open_browser(&login.login_url) {
         println!("Opened GitHub login in your browser.");
+        println!("If it did not open, visit:");
     } else {
         println!("Open this URL to sign in with GitHub:");
     }
     println!("{}", login.login_url);
-    print!("Waiting for GitHub login");
+    print!("Waiting for GitHub login...");
     io::stdout().flush().ok();
 
     let deadline = Instant::now() + Duration::from_secs(login.expires_in.max(1));
@@ -1317,6 +1331,24 @@ mod setup_tests {
         let error = result.unwrap_err().to_string();
         assert!(error.contains("GitHub sign-in failed for https://tokenboard.net"));
         assert!(!error.contains("Tokenboard API token"));
+        let output = String::from_utf8(output).unwrap();
+        assert!(!output.contains("Tokenboard API token"));
+    }
+
+    #[test]
+    fn setup_cancelled_message_is_used_when_required_github_auth_is_declined() {
+        let existing = ConfigFile::default();
+        let mut input = Cursor::new(b"\nn\n".to_vec());
+        let mut output = Vec::new();
+        let called = Cell::new(false);
+
+        let result = run_setup_with_io(&existing, &mut input, &mut output, |_api_url| {
+            called.set(true);
+            unreachable!("login should not start when the user declines required GitHub auth");
+        });
+
+        assert!(!called.get());
+        assert_eq!(result.unwrap_err().to_string(), setup_cancelled_message());
         let output = String::from_utf8(output).unwrap();
         assert!(!output.contains("Tokenboard API token"));
     }
