@@ -14,6 +14,7 @@ const PERIOD_ALIASES = {
 	year: "year",
 	yearly: "year",
 };
+const MAX_SEARCH_QUERY_LENGTH = 64;
 
 function getQueryString(value) {
 	if (Array.isArray(value)) {
@@ -28,6 +29,10 @@ function isValidIsoDate(value) {
 	}
 	const parsed = new Date(`${value}T00:00:00.000Z`);
 	return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function escapeLikePattern(value) {
+	return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function toInt(value) {
@@ -48,6 +53,7 @@ router.get("/", async (req, res) => {
 	const period = PERIOD_ALIASES[requestedPeriod];
 	const periodStart = getQueryString(req.query.periodStart);
 	const periodEnd = getQueryString(req.query.periodEnd);
+	const searchQuery = getQueryString(req.query.q).slice(0, MAX_SEARCH_QUERY_LENGTH);
 
 	if (!period) {
 		return res.status(400).json({
@@ -55,7 +61,7 @@ router.get("/", async (req, res) => {
 		});
 	}
 
-	let dateFilter = "";
+	const filters = [];
 	const params = [];
 	let paramIndex = 1;
 
@@ -70,19 +76,27 @@ router.get("/", async (req, res) => {
 			return res.status(400).json({ error: "periodStart must be less than or equal to periodEnd" });
 		}
 
-		dateFilter = `WHERE s.date >= $${paramIndex} AND s.date <= $${paramIndex + 1}`;
+		filters.push(`s.date >= $${paramIndex} AND s.date <= $${paramIndex + 1}`);
 		params.push(periodStart, periodEnd);
 		paramIndex += 2;
 	} else if (period === "year") {
-		dateFilter = `WHERE EXTRACT(YEAR FROM s.date) = EXTRACT(YEAR FROM CURRENT_DATE)`;
+		filters.push(`EXTRACT(YEAR FROM s.date) = EXTRACT(YEAR FROM CURRENT_DATE)`);
 	} else if (period === "month") {
-		dateFilter = `WHERE s.date >= date_trunc('month', CURRENT_DATE)::date`;
+		filters.push(`s.date >= date_trunc('month', CURRENT_DATE)::date`);
 	} else if (period === "week") {
-		dateFilter = `WHERE s.date >= date_trunc('week', CURRENT_DATE)::date`;
+		filters.push(`s.date >= date_trunc('week', CURRENT_DATE)::date`);
 	} else if (period === "day") {
-		dateFilter = `WHERE s.date = CURRENT_DATE`;
+		filters.push(`s.date = CURRENT_DATE`);
 	}
 	// period === "all" → no filter
+
+	if (searchQuery) {
+		filters.push(`LOWER(u.username) LIKE $${paramIndex} ESCAPE '\\'`);
+		params.push(`%${escapeLikePattern(searchQuery.toLowerCase())}%`);
+		paramIndex += 1;
+	}
+
+	const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
 
 	const query = `
     WITH filtered AS (
@@ -102,7 +116,7 @@ router.get("/", async (req, res) => {
         s.submitted_at
       FROM submissions s
       JOIN users u ON u.id = s.user_id
-      ${dateFilter}
+      ${whereClause}
     ),
     aggregated AS (
       SELECT
@@ -233,6 +247,7 @@ router.get("/", async (req, res) => {
 
 		res.json({
 			period,
+			query: searchQuery,
 			entries: serializedLeaderboard.length,
 			leaderboard: serializedLeaderboard,
 		});
