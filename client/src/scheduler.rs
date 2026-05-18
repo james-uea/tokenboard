@@ -142,6 +142,8 @@ mod platform {
         let _ = Command::new("launchctl")
             .arg("unload")
             .arg(&plist_path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .status();
         run_command(
             Command::new("launchctl").arg("load").arg(&plist_path),
@@ -161,6 +163,8 @@ mod platform {
         let _ = Command::new("launchctl")
             .arg("unload")
             .arg(&plist_path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .status();
         if plist_path.exists() {
             std::fs::remove_file(&plist_path)

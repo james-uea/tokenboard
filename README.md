@@ -9,8 +9,9 @@ estimates, and submits only those aggregates to a private Tokenboard server.
 
 ## Quick Start
 
-Use this path when a team already runs a Tokenboard server and you only need to
-install the CLI.
+Use this path to install the CLI and sign in to the hosted Tokenboard server.
+During setup, press Enter to keep `https://tokenboard.net`, or choose a custom
+self-hosted server URL when prompted.
 
 ```bash
 curl -fsSL https://tokenboard.net/install.sh | bash
@@ -18,16 +19,16 @@ tokenboard --version
 tokenboard setup
 tokenboard scan
 tokenboard sync
-tokenboard autosync install
 tokenboard autosync status
 ```
 
-`tokenboard setup` opens a GitHub login flow in your browser, creates a
-user-bound API token on the Tokenboard server, and saves the configuration in
-`~/.tokenboard/config.toml`.
+`tokenboard setup` opens a GitHub login flow in your browser, saves your
+configuration in `~/.tokenboard/config.toml`, and asks whether to enable
+automatic background sync.
 
-`tokenboard autosync install` enables background sync every 3 hours, and
-`tokenboard autosync status` verifies that it is registered.
+Automatic sync runs every 3 hours. `tokenboard autosync status` verifies that it
+is registered, and `tokenboard autosync install` enables it later if you skip it
+during setup.
 
 Useful commands:
 
@@ -220,8 +221,8 @@ current directory, `~/.tokenboard/.env`, and `~/.tokenboard/config.toml`.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `TOKENBOARD_API_URL` | `http://localhost:3001` | Tokenboard server URL |
-| `TOKENBOARD_API_TOKEN` | unset | User-bound API token from `tokenboard setup` |
+| `TOKENBOARD_API_URL` | `https://tokenboard.net` | Tokenboard server URL |
+| `TOKENBOARD_API_TOKEN` | unset | User-bound token saved by GitHub setup |
 | `TOKENBOARD_API_KEY` | unset | Legacy shared-key fallback |
 | `TOKENBOARD_GITHUB_USERNAME` | unset | GitHub username shown on the leaderboard |
 | `TOKENBOARD_DISPLAY_NAME` | GitHub username | Display name shown in the UI |

@@ -252,7 +252,7 @@ pub fn scan_and_sync(
     let records = crate::scanner::scan_all(filter).context("Failed to scan for session data")?;
 
     if records.is_empty() {
-        info!("No token usage data found. Have you used any AI coding agents?");
+        println!("No token usage data found. Nothing was submitted.");
         return Ok(());
     }
 

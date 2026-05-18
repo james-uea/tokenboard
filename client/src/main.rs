@@ -2,14 +2,14 @@
 //!
 //! Usage:
 //!   tokenboard         Show help
-//!   tokenboard setup   Sign in with GitHub and configure your API token
+//!   tokenboard setup   Sign in with GitHub and configure Tokenboard
 //!   tokenboard scan    Scan and print local token usage (dry run, no submission)
 //!   tokenboard sync    Scan local session data and submit to the leaderboard
 //!   tokenboard autosync install  Schedule sync every 3 hours
 //!
 //! Configuration is stored in ~/.tokenboard/config.toml and can also be set via
 //! environment variables or .env files:
-//!   TOKENBOARD_API_URL   — API base URL (default: http://localhost:3001)
+//!   TOKENBOARD_API_URL   — API base URL (default: https://tokenboard.net)
 //!   TOKENBOARD_API_TOKEN — User-bound Tokenboard API token for authentication
 //!   TOKENBOARD_API_KEY   — Legacy shared API key fallback
 //!   TOKENBOARD_GITHUB_USERNAME  — Your GitHub username on the leaderboard
@@ -31,7 +31,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -122,7 +122,10 @@ enum Command {
         client: ClientFilter,
     },
 
-    /// Sign in with GitHub and configure your Tokenboard API token.
+    /// Sign in with GitHub and configure Tokenboard.
+    #[command(
+        after_help = "Defaults to https://tokenboard.net. You can choose a custom self-hosted server during setup.\nSetup opens GitHub auth in your browser and can enable autosync at the end."
+    )]
     Setup,
 
     /// Check for and install tokenboard CLI updates.
@@ -180,7 +183,7 @@ struct ConfigFile {
 }
 
 fn default_api_url() -> String {
-    "http://localhost:3001".to_string()
+    "https://tokenboard.net".to_string()
 }
 
 fn default_auto_update() -> bool {
@@ -490,26 +493,31 @@ fn cmd_setup() -> Result<()> {
     let existing = load_config_file();
     let cfg = run_setup(&existing)?;
     save_config_file(&cfg)?;
-    println!("Configuration complete! You can now run:");
+    println!("Configuration complete. You can now run:");
     println!("  tokenboard scan     (dry-run — see your usage)");
     println!("  tokenboard sync     (submit to the leaderboard)");
-    println!("  tokenboard autosync install  (sync every 3 hours)");
 
     let mut stdout = io::stdout();
     let stdin = io::stdin();
+    let mut stdin = stdin.lock();
     if prompt_yes_no(
-        &stdin,
+        &mut stdin,
         &mut stdout,
         "👉 Install automatic sync every 3 hours? [Y/n]: ",
         true,
     ) {
         match scheduler::install() {
-            Ok(message) => println!("{message}"),
+            Ok(message) => {
+                println!("{message}");
+                println!("Automatic sync is enabled. Check it with `tokenboard autosync status`.");
+            }
             Err(error) => {
                 eprintln!("⚠  Failed to install automatic sync: {error}");
                 eprintln!("Run `tokenboard autosync install` after setup to try again.");
             }
         }
+    } else {
+        println!("Enable it later with `tokenboard autosync install`.");
     }
     Ok(())
 }
@@ -534,37 +542,42 @@ fn cmd_autosync(command: AutosyncCommand) -> Result<()> {
 }
 
 fn run_setup(existing: &ConfigFile) -> Result<ConfigFile> {
-    let mut cfg = existing.clone();
-    let mut stdout = io::stdout();
     let stdin = io::stdin();
+    let mut stdin = stdin.lock();
+    let mut stdout = io::stdout();
+    run_setup_with_io(existing, &mut stdin, &mut stdout, run_github_login)
+}
 
-    println!();
-    println!("╔══════════════════════════════════════╗");
-    println!("║   tokenboard — First-time Setup      ║");
-    println!("╚══════════════════════════════════════╝");
-    println!();
+fn run_setup_with_io<R, W, F>(
+    existing: &ConfigFile,
+    stdin: &mut R,
+    stdout: &mut W,
+    login_fn: F,
+) -> Result<ConfigFile>
+where
+    R: BufRead,
+    W: Write,
+    F: Fn(&str) -> Result<CliLoginResult>,
+{
+    let mut cfg = existing.clone();
 
-    // API URL is needed before GitHub login can start.
-    let default_hint = format!(" [{}]", cfg.api_url);
-    let input = prompt_line(
-        &stdin,
-        &mut stdout,
-        &format!("👉 API URL{}: ", default_hint),
-    );
-    if !input.is_empty() {
-        cfg.api_url = input;
-    }
-    cfg.api_url = normalize_api_url(&cfg.api_url);
+    writeln!(stdout)?;
+    writeln!(stdout, "╔══════════════════════════════════════╗")?;
+    writeln!(stdout, "║   tokenboard — First-time Setup      ║")?;
+    writeln!(stdout, "╚══════════════════════════════════════╝")?;
+    writeln!(stdout)?;
+
+    cfg.api_url = prompt_api_url(stdin, stdout, &cfg.api_url)?;
 
     let missing_required = cfg.github_username.trim().is_empty() || cfg.api_token.trim().is_empty();
     let login_prompt = if missing_required {
-        "👉 Sign in with GitHub to create a Tokenboard API token? [Y/n]: "
+        "👉 Sign in with GitHub to configure Tokenboard? [Y/n]: "
     } else {
-        "👉 Sign in with GitHub to refresh your API token? [y/N]: "
+        "👉 Sign in with GitHub to refresh your Tokenboard session? [y/N]: "
     };
 
-    if prompt_yes_no(&stdin, &mut stdout, login_prompt, missing_required) {
-        match run_github_login(&cfg.api_url) {
+    if prompt_yes_no(stdin, stdout, login_prompt, missing_required) {
+        match login_fn(&cfg.api_url) {
             Ok(login) => {
                 cfg.api_token = login.token;
                 cfg.github_username = if login.user.github_login.trim().is_empty() {
@@ -575,17 +588,18 @@ fn run_setup(existing: &ConfigFile) -> Result<ConfigFile> {
                 if !login.user.display_name.trim().is_empty() {
                     cfg.display_name = login.user.display_name;
                 }
-                println!("Signed in as @{}.", cfg.github_username);
+                writeln!(stdout, "Signed in as @{}.", cfg.github_username)?;
             }
             Err(error) => {
-                eprintln!("⚠  GitHub login failed: {error}");
-                eprintln!("Falling back to manual setup.\n");
+                anyhow::bail!("{}", setup_login_failure_message(&cfg.api_url, &error));
             }
         }
     }
 
     if cfg.github_username.trim().is_empty() || cfg.api_token.trim().is_empty() {
-        prompt_manual_credentials(&mut cfg, &stdin, &mut stdout);
+        anyhow::bail!(
+            "GitHub sign-in is required to configure Tokenboard. Run `tokenboard setup` again when you are ready to sign in."
+        );
     }
 
     // Display name (optional, defaults to GitHub username)
@@ -594,7 +608,7 @@ fn run_setup(existing: &ConfigFile) -> Result<ConfigFile> {
     } else {
         cfg.display_name.clone()
     };
-    print!("👉 Display name [{}]: ", default_display_name);
+    write!(stdout, "👉 Display name [{}]: ", default_display_name)?;
     stdout.flush().ok();
     let mut line = String::new();
     stdin.read_line(&mut line).ok();
@@ -605,63 +619,80 @@ fn run_setup(existing: &ConfigFile) -> Result<ConfigFile> {
         input
     };
 
-    println!();
+    writeln!(stdout)?;
     Ok(cfg)
 }
 
-fn prompt_manual_credentials(cfg: &mut ConfigFile, stdin: &io::Stdin, stdout: &mut io::Stdout) {
-    // GitHub username
-    loop {
-        let default_hint = if cfg.github_username.is_empty() {
-            String::new()
-        } else {
-            format!(" [{}]", cfg.github_username)
-        };
-        let input = prompt_line(
+fn prompt_api_url<R: BufRead, W: Write>(
+    stdin: &mut R,
+    stdout: &mut W,
+    current_url: &str,
+) -> Result<String> {
+    let default_url = default_api_url();
+    let current = normalize_api_url(current_url);
+    let keep_hosted_default = current == default_url;
+
+    if keep_hosted_default {
+        if prompt_yes_no(
             stdin,
             stdout,
-            &format!("👉 GitHub username{}: ", default_hint),
-        );
-        if !input.is_empty() {
-            cfg.github_username = input;
+            "👉 Use https://tokenboard.net as your Tokenboard server? [Y/n]: ",
+            true,
+        ) {
+            return Ok(default_url);
         }
-        if !cfg.github_username.trim().is_empty() {
-            break;
-        }
-        eprintln!("⚠  GitHub username cannot be empty.");
+    } else if prompt_yes_no(
+        stdin,
+        stdout,
+        &format!("👉 Keep Tokenboard server {current}? [Y/n]: "),
+        true,
+    ) {
+        return Ok(current);
     }
 
-    // User-bound Tokenboard API token
     loop {
-        let default_hint = if cfg.api_token.is_empty() {
-            String::new()
-        } else {
-            format!(" [{}]", mask_key(&cfg.api_token))
-        };
-        let input = prompt_line(
-            stdin,
-            stdout,
-            &format!("👉 Tokenboard API token{}: ", default_hint),
-        );
-        if !input.is_empty() {
-            cfg.api_token = input;
+        let input = prompt_line(stdin, stdout, "👉 Tokenboard server URL: ");
+        if !input.trim().is_empty() {
+            return Ok(normalize_api_url(&input));
         }
-        if !cfg.api_token.trim().is_empty() {
-            break;
-        }
-        eprintln!("⚠  Tokenboard API token cannot be empty.");
+        writeln!(stdout, "⚠  Tokenboard server URL cannot be empty.")?;
     }
 }
 
-fn prompt_line(stdin: &io::Stdin, stdout: &mut io::Stdout, prompt: &str) -> String {
-    print!("{prompt}");
+fn setup_login_failure_message(api_url: &str, error: &anyhow::Error) -> String {
+    let detail = sanitize_error_message(error);
+    format!(
+        "GitHub sign-in failed for {api_url}: {detail}\nRetry setup, or check that this Tokenboard server is reachable and configured for GitHub auth."
+    )
+}
+
+fn sanitize_error_message(error: &anyhow::Error) -> String {
+    let message = error.to_string();
+    let lower = message.to_lowercase();
+    if lower.contains("<html")
+        || lower.contains("<!doctype")
+        || lower.contains("<body")
+        || lower.contains("<pre")
+    {
+        return "Tokenboard server returned an unreadable error response.".to_string();
+    }
+    message
+}
+
+fn prompt_line<R: BufRead, W: Write>(stdin: &mut R, stdout: &mut W, prompt: &str) -> String {
+    write!(stdout, "{prompt}").ok();
     stdout.flush().ok();
     let mut line = String::new();
     stdin.read_line(&mut line).ok();
     line.trim().to_string()
 }
 
-fn prompt_yes_no(stdin: &io::Stdin, stdout: &mut io::Stdout, prompt: &str, default: bool) -> bool {
+fn prompt_yes_no<R: BufRead, W: Write>(
+    stdin: &mut R,
+    stdout: &mut W,
+    prompt: &str,
+    default: bool,
+) -> bool {
     loop {
         let input = prompt_line(stdin, stdout, prompt).to_lowercase();
         if input.is_empty() {
@@ -670,7 +701,9 @@ fn prompt_yes_no(stdin: &io::Stdin, stdout: &mut io::Stdout, prompt: &str, defau
         match input.as_str() {
             "y" | "yes" => return true,
             "n" | "no" => return false,
-            _ => eprintln!("⚠  Enter yes or no."),
+            _ => {
+                writeln!(stdout, "⚠  Enter yes or no.").ok();
+            }
         }
     }
 }
@@ -696,16 +729,13 @@ fn run_github_login(api_url: &str) -> Result<CliLoginResult> {
         .post(&start_url)
         .json(&serde_json::json!({ "name": "tokenboard CLI" }))
         .send()
-        .with_context(|| format!("Failed to start GitHub login at {start_url}"))?;
+        .map_err(|error| github_login_network_error(&api_url, "starting GitHub login", error))?;
     let status = response.status();
     if !status.is_success() {
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "unknown error".to_string());
         anyhow::bail!(
-            "Server returned {} while starting GitHub login: {}",
-            status,
-            body
+            "Tokenboard server returned {} while starting GitHub login at {}.",
+            status.as_u16(),
+            start_url
         );
     }
 
@@ -740,7 +770,7 @@ fn run_github_login(api_url: &str) -> Result<CliLoginResult> {
         let response = client
             .get(&poll_url)
             .send()
-            .context("Failed to poll GitHub login status")?;
+            .map_err(|error| github_login_network_error(&api_url, "polling GitHub login", error))?;
         let status = response.status();
 
         if status == reqwest::StatusCode::ACCEPTED {
@@ -752,13 +782,10 @@ fn run_github_login(api_url: &str) -> Result<CliLoginResult> {
 
         if !status.is_success() {
             println!();
-            let body = response
-                .text()
-                .unwrap_or_else(|_| "unknown error".to_string());
             anyhow::bail!(
-                "Server returned {} while polling GitHub login: {}",
-                status,
-                body
+                "Tokenboard server returned {} while polling GitHub login at {}.",
+                status.as_u16(),
+                poll_url
             );
         }
 
@@ -770,7 +797,7 @@ fn run_github_login(api_url: &str) -> Result<CliLoginResult> {
             let token = poll
                 .token
                 .filter(|value| !value.trim().is_empty())
-                .context("GitHub login did not return an API token")?;
+                .context("GitHub login did not return CLI credentials")?;
             let user = poll.user.context("GitHub login did not return a user")?;
             return Ok(CliLoginResult { token, user });
         }
@@ -779,6 +806,10 @@ fn run_github_login(api_url: &str) -> Result<CliLoginResult> {
         io::stdout().flush().ok();
         std::thread::sleep(poll_interval);
     }
+}
+
+fn github_login_network_error(api_url: &str, action: &str, error: reqwest::Error) -> anyhow::Error {
+    anyhow::anyhow!("Could not reach Tokenboard server {api_url} while {action}: {error}")
 }
 
 fn open_browser(url: &str) -> bool {
@@ -1221,14 +1252,6 @@ fn format_num(n: i64) -> String {
     }
 }
 
-fn mask_key(key: &str) -> String {
-    if key.len() <= 8 {
-        "••••".to_string()
-    } else {
-        format!("{}••••{}", &key[..4], &key[key.len() - 4..])
-    }
-}
-
 fn ms_to_date(ms: i64) -> String {
     use chrono::TimeZone;
     let secs = ms / 1000;
@@ -1238,6 +1261,78 @@ fn ms_to_date(ms: i64) -> String {
         .single()
         .map(|dt| dt.format("%Y-%m-%d").to_string())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+#[cfg(test)]
+mod setup_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::io::Cursor;
+
+    #[test]
+    fn default_api_url_uses_hosted_tokenboard() {
+        assert_eq!(default_api_url(), "https://tokenboard.net");
+    }
+
+    #[test]
+    fn api_url_prompt_keeps_hosted_default_on_empty_yes() {
+        let mut input = Cursor::new(b"\n".to_vec());
+        let mut output = Vec::new();
+
+        let api_url = prompt_api_url(&mut input, &mut output, "").unwrap();
+
+        assert_eq!(api_url, "https://tokenboard.net");
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("Use https://tokenboard.net as your Tokenboard server? [Y/n]:"));
+    }
+
+    #[test]
+    fn api_url_prompt_accepts_custom_url_after_no() {
+        let mut input = Cursor::new(b"n\nhttps://tokenboard.example.com///\n".to_vec());
+        let mut output = Vec::new();
+
+        let api_url = prompt_api_url(&mut input, &mut output, "").unwrap();
+
+        assert_eq!(api_url, "https://tokenboard.example.com");
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("Tokenboard server URL:"));
+    }
+
+    #[test]
+    fn setup_stops_on_github_auth_failure_without_prompting_for_token() {
+        let existing = ConfigFile::default();
+        let mut input = Cursor::new(b"\n\n".to_vec());
+        let mut output = Vec::new();
+        let called = Cell::new(false);
+
+        let result = run_setup_with_io(&existing, &mut input, &mut output, |api_url| {
+            called.set(true);
+            assert_eq!(api_url, "https://tokenboard.net");
+            anyhow::bail!(
+                "Tokenboard server returned 400 while starting GitHub login at https://tokenboard.net/api/auth/cli/start."
+            );
+        });
+
+        assert!(called.get());
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("GitHub sign-in failed for https://tokenboard.net"));
+        assert!(!error.contains("Tokenboard API token"));
+        let output = String::from_utf8(output).unwrap();
+        assert!(!output.contains("Tokenboard API token"));
+    }
+
+    #[test]
+    fn setup_login_failure_message_strips_html_response_bodies() {
+        let error = anyhow::anyhow!(
+            "Server returned 400 while starting GitHub login: <!DOCTYPE html><html><body><pre>stack trace</pre></body></html>"
+        );
+
+        let message = setup_login_failure_message("https://tokenboard.net", &error);
+
+        assert!(message.contains("Tokenboard server returned an unreadable error response."));
+        assert!(!message.contains("<html>"));
+        assert!(!message.contains("stack trace"));
+    }
 }
 
 #[cfg(test)]
