@@ -217,11 +217,12 @@ fn select_asset(assets: &[GithubAsset]) -> Option<&GithubAsset> {
 }
 
 fn platform_asset_names() -> Option<&'static [&'static str]> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("linux", "x86_64") => Some(&[
-            "tokenboard-x86_64-unknown-linux-musl",
-            "tokenboard-x86_64-unknown-linux-gnu",
-        ]),
+    platform_asset_names_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn platform_asset_names_for(os: &str, arch: &str) -> Option<&'static [&'static str]> {
+    match (os, arch) {
+        ("linux", "x86_64") => Some(&["tokenboard-x86_64-unknown-linux-musl"]),
         ("macos", "aarch64") => Some(&["tokenboard-aarch64-apple-darwin"]),
         ("macos", "x86_64") => Some(&["tokenboard-x86_64-apple-darwin"]),
         ("windows", "x86_64") => Some(&["tokenboard-x86_64-pc-windows-msvc.exe"]),
@@ -545,16 +546,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    fn linux_prefers_musl_release_asset() {
-        let assets = vec![
-            asset("tokenboard-x86_64-unknown-linux-gnu"),
-            asset("tokenboard-x86_64-unknown-linux-musl"),
-        ];
-
+    fn linux_uses_only_musl_release_asset() {
         assert_eq!(
-            select_asset(&assets).unwrap().name,
-            "tokenboard-x86_64-unknown-linux-musl"
+            platform_asset_names_for("linux", "x86_64").unwrap(),
+            ["tokenboard-x86_64-unknown-linux-musl"]
         );
     }
 

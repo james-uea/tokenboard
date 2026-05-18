@@ -59,7 +59,6 @@ detect_assets() {
         exit 1
       fi
       echo "tokenboard-x86_64-unknown-linux-musl"
-      echo "tokenboard-x86_64-unknown-linux-gnu"
       ;;
     MINGW*|MSYS*|CYGWIN*)
       if [[ "$arch" != "x86_64" ]]; then

@@ -2,12 +2,17 @@
 
 All notable changes to Tokenboard will be documented in this file.
 
+## 1.0.10 - 2026-05-18
+
+- Remove the unsafe Linux GNU/glibc fallback from the installer and updater;
+  Linux installs now require the static musl release asset.
+- Stop publishing the Linux GNU release asset so old updaters fail safely
+  instead of replacing themselves with a binary that may not run.
+
 ## 1.0.9 - 2026-05-18
 
 - Prefer a static Linux musl release asset in the Bash installer and CLI
   updater so installs do not depend on the user's glibc version.
-- Keep a GNU Linux release asset for compatibility with older updaters, built
-  on Ubuntu 22.04 to lower its glibc floor.
 - Add a Windows PowerShell installer and publish it through `/install.ps1`.
 - Split quick-start copy commands by macOS/Linux and Windows.
 
