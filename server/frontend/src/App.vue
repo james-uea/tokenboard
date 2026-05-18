@@ -36,6 +36,10 @@ const leaderboard = ref([])
 const leaderboardLoading = ref(true)
 const leaderboardError = ref("")
 const leaderboardPeriod = ref("all")
+const leaderboardAppliedSearch = ref("")
+const searchOpen = ref(false)
+const searchQuery = ref("")
+const searchInput = ref(null)
 const sortKey = ref("total_tokens")
 const sortDirection = ref("desc")
 
@@ -76,6 +80,9 @@ let diffChart = null
 let providerSpendChart = null
 let agentBreakdownChart = null
 let activeProfileRequestId = 0
+let leaderboardRequestId = 0
+let leaderboardSearchTimer = null
+let leaderboardAbortController = null
 
 const profilePreloadCache = new Map()
 
@@ -139,11 +146,17 @@ const accountTopModel = computed(() => {
   const models = Array.isArray(accountStats.value?.models) ? accountStats.value.models : []
   return shortModel(models[0]?.model)
 })
+const normalizedSearchQuery = computed(() => normalizeSearchQuery(searchQuery.value))
+const hasActiveLeaderboardSearch = computed(() => leaderboardAppliedSearch.value.length > 0)
 
 // ── Helpers ──────────────────────────────────────────
 
 function getSortValue(entry, key) {
   return NUMERIC_COLUMNS.has(key) ? Number(entry?.[key] ?? 0) : String(entry?.[key] ?? "")
+}
+
+function normalizeSearchQuery(value) {
+  return String(value || "").trim().slice(0, 64)
 }
 
 function applyRouteFromLocation() {
@@ -597,26 +610,70 @@ function onHeatmapLabelLeave() {
 
 // ── Data Fetching ────────────────────────────────────
 
-async function loadLeaderboard(period = leaderboardPeriod.value) {
+async function loadLeaderboard(period = leaderboardPeriod.value, query = normalizedSearchQuery.value) {
+  const requestId = leaderboardRequestId + 1
+  const normalizedQuery = normalizeSearchQuery(query)
+  leaderboardRequestId = requestId
   leaderboardPeriod.value = period
   leaderboardLoading.value = true
   leaderboardError.value = ""
+
+  if (leaderboardAbortController) {
+    leaderboardAbortController.abort()
+  }
+  const controller = new AbortController()
+  leaderboardAbortController = controller
+
   try {
     const params = new URLSearchParams({ period, limit: "100" })
-    const response = await fetch(`/api/leaderboard?${params}`)
+    if (normalizedQuery) params.set("q", normalizedQuery)
+    const response = await fetch(`/api/leaderboard?${params}`, { signal: controller.signal })
     if (!response.ok) throw new Error(`Leaderboard request failed (${response.status})`)
     const payload = await response.json()
+    if (requestId !== leaderboardRequestId) return
     leaderboard.value = Array.isArray(payload?.leaderboard) ? payload.leaderboard : []
+    leaderboardAppliedSearch.value = normalizedQuery
   } catch (error) {
+    if (error?.name === "AbortError" || requestId !== leaderboardRequestId) return
     leaderboardError.value = error instanceof Error ? error.message : "Unable to load leaderboard."
   } finally {
-    leaderboardLoading.value = false
+    if (requestId === leaderboardRequestId) {
+      leaderboardLoading.value = false
+      if (leaderboardAbortController === controller) {
+        leaderboardAbortController = null
+      }
+    }
   }
 }
 
 function setPeriod(period) {
   if (period === leaderboardPeriod.value) return
-  loadLeaderboard(period)
+  loadLeaderboard(period, normalizedSearchQuery.value)
+}
+
+function clearLeaderboardSearchTimer() {
+  if (leaderboardSearchTimer) {
+    window.clearTimeout(leaderboardSearchTimer)
+    leaderboardSearchTimer = null
+  }
+}
+
+async function openLeaderboardSearch() {
+  if (route.value.name !== "leaderboard") return
+  searchOpen.value = true
+  accountPanelOpen.value = false
+  await nextTick()
+  searchInput.value?.focus()
+}
+
+function closeLeaderboardSearch({ reload = true } = {}) {
+  const shouldReload = reload && (normalizedSearchQuery.value || leaderboardAppliedSearch.value)
+  clearLeaderboardSearchTimer()
+  searchOpen.value = false
+  searchQuery.value = ""
+  if (shouldReload) {
+    loadLeaderboard(leaderboardPeriod.value, "")
+  }
 }
 
 async function loadBadges() {
@@ -790,6 +847,8 @@ function loadProfile(username) {
 
 function goToUser(username) {
   if (!username) return
+  searchOpen.value = false
+  clearLeaderboardSearchTimer()
   history.pushState({}, "", `/users/${encodeURIComponent(username)}`)
   route.value = { name: "user", username }
   loadProfile(username)
@@ -804,6 +863,7 @@ function goToAuthenticatedProfile() {
 function goToLeaderboard() {
   history.pushState({}, "", "/")
   route.value = { name: "leaderboard", username: null }
+  closeLeaderboardSearch({ reload: Boolean(normalizedSearchQuery.value || leaderboardAppliedSearch.value) })
   activeProfileRequestId += 1
   statsError.value = ""
   statsLoading.value = false
@@ -1253,6 +1313,7 @@ function handlePopstate() {
   if (route.value.name === "user" && route.value.username) {
     loadProfile(route.value.username)
   } else {
+    closeLeaderboardSearch({ reload: Boolean(normalizedSearchQuery.value || leaderboardAppliedSearch.value) })
     activeProfileRequestId += 1
     statsLoading.value = false
     ghContribsLoading.value = false
@@ -1273,6 +1334,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener("popstate", handlePopstate)
+  clearLeaderboardSearchTimer()
+  leaderboardAbortController?.abort()
   cleanupCharts()
 })
 
@@ -1300,6 +1363,14 @@ watch(authUser, () => {
   accountStatsUsername.value = ""
   accountStatsError.value = ""
 })
+
+watch(searchQuery, () => {
+  if (!searchOpen.value || route.value.name !== "leaderboard") return
+  clearLeaderboardSearchTimer()
+  leaderboardSearchTimer = window.setTimeout(() => {
+    loadLeaderboard(leaderboardPeriod.value, normalizedSearchQuery.value)
+  }, 250)
+})
 </script>
 
 <template>
@@ -1318,41 +1389,89 @@ watch(authUser, () => {
         </a>
       </div>
 
-      <div class="app-header-actions">
-        <nav v-if="route.name === 'leaderboard'" class="period-selector" aria-label="Time period">
+      <div class="app-header-actions" :class="{ 'search-expanded': route.name === 'leaderboard' && searchOpen }">
+        <form
+          v-if="route.name === 'leaderboard' && searchOpen"
+          class="leaderboard-search"
+          role="search"
+          @submit.prevent
+        >
+          <label class="sr-only" for="leaderboard-user-search">Search Tokenboard usernames</label>
+          <svg class="search-field-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="m16 16 4 4"></path>
+          </svg>
+          <input
+            id="leaderboard-user-search"
+            ref="searchInput"
+            v-model="searchQuery"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Search usernames"
+            @keydown.esc.prevent="closeLeaderboardSearch()"
+          />
           <button
-            v-for="period in PERIODS"
-            :key="period.key"
+            v-if="searchQuery"
             type="button"
-            class="period-btn"
-            :class="{ active: leaderboardPeriod === period.key }"
-            @click="setPeriod(period.key)"
+            class="search-clear"
+            aria-label="Clear username search"
+            @click="closeLeaderboardSearch()"
           >
-            {{ period.label }}
+            <span aria-hidden="true">&times;</span>
           </button>
-        </nav>
+          <button type="button" class="search-close" @click="closeLeaderboardSearch()">Close</button>
+        </form>
 
-        <div class="account-actions">
+        <template v-else>
+          <nav v-if="route.name === 'leaderboard'" class="period-selector" aria-label="Time period">
+            <button
+              v-for="period in PERIODS"
+              :key="period.key"
+              type="button"
+              class="period-btn"
+              :class="{ active: leaderboardPeriod === period.key }"
+              @click="setPeriod(period.key)"
+            >
+              {{ period.label }}
+            </button>
+          </nav>
+
+          <div class="account-actions">
+            <button
+              v-if="authUser"
+              type="button"
+              class="account-chip"
+              :class="{ active: accountPanelOpen }"
+              @click="accountPanelOpen = !accountPanelOpen"
+            >
+              <img v-if="authAvatarUsername" :src="avatarUrl(authAvatarUsername)" alt="" />
+              <span>@{{ authUser.github_login || authUser.username }}</span>
+            </button>
+            <button
+              v-else
+              type="button"
+              class="github-login"
+              :disabled="authLoading"
+              @click="loginWithGitHub"
+            >
+              Sign in with GitHub
+            </button>
+          </div>
+
           <button
-            v-if="authUser"
+            v-if="route.name === 'leaderboard'"
             type="button"
-            class="account-chip"
-            :class="{ active: accountPanelOpen }"
-            @click="accountPanelOpen = !accountPanelOpen"
+            class="search-toggle"
+            aria-label="Search Tokenboard usernames"
+            @click="openLeaderboardSearch"
           >
-            <img v-if="authAvatarUsername" :src="avatarUrl(authAvatarUsername)" alt="" />
-            <span>@{{ authUser.github_login || authUser.username }}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m16 16 4 4"></path>
+            </svg>
           </button>
-          <button
-            v-else
-            type="button"
-            class="github-login"
-            :disabled="authLoading"
-            @click="loginWithGitHub"
-          >
-            Sign in with GitHub
-          </button>
-        </div>
+        </template>
       </div>
     </header>
 
@@ -1421,8 +1540,9 @@ watch(authUser, () => {
       <!-- Empty state -->
       <div v-else-if="sortedLeaderboard.length === 0" class="empty-state">
         <div class="empty-icon">📊</div>
-        <h3>No data yet</h3>
-        <p>No token usage has been submitted for this period. Run <code>tokenboard sync</code> to submit your first entries.</p>
+        <h3>{{ hasActiveLeaderboardSearch ? "No matching users" : "No data yet" }}</h3>
+        <p v-if="hasActiveLeaderboardSearch">No users match "{{ leaderboardAppliedSearch }}".</p>
+        <p v-else>No token usage has been submitted for this period. Run <code>tokenboard sync</code> to submit your first entries.</p>
       </div>
 
       <!-- Table -->
