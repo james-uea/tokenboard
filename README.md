@@ -7,6 +7,40 @@ tools, models, people, and days, without uploading raw prompts or transcripts.
 The desktop CLI scans local agent history, aggregates token counts and cost
 estimates, and submits only those aggregates to a private Tokenboard server.
 
+## Quick Start
+
+Use this path when a team already runs a Tokenboard server and you only need to
+install the CLI.
+
+```bash
+curl -fsSL https://tokenboard.net/install.sh | bash
+tokenboard --version
+tokenboard setup
+tokenboard scan
+tokenboard sync
+tokenboard autosync install
+tokenboard autosync status
+```
+
+`tokenboard setup` opens a GitHub login flow in your browser, creates a
+user-bound API token on the Tokenboard server, and saves the configuration in
+`~/.tokenboard/config.toml`.
+
+`tokenboard autosync install` enables background sync every 3 hours, and
+`tokenboard autosync status` verifies that it is registered.
+
+Useful commands:
+
+```bash
+tokenboard scan --today
+tokenboard scan --week
+tokenboard scan -c claude,codex
+tokenboard sync --dry-run
+tokenboard sync --week
+tokenboard update check
+tokenboard update install
+```
+
 ## What It Does
 
 - Scans local usage from 21 AI coding agents.
@@ -46,37 +80,6 @@ server fetches public contribution heatmap data from
 `github-contributions-api.deno.dev` and public event/repository data from
 GitHub for the requested GitHub username; it does not send Tokenboard usage
 records, API tokens, prompts, transcripts, or local file data to those services.
-
-## Quick Start
-
-Use this path when a team already runs a Tokenboard server and you only need to
-install the CLI.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/james-uea/tokenboard/main/scripts/install.sh | bash
-tokenboard --version
-tokenboard setup
-tokenboard scan
-tokenboard sync
-```
-
-`tokenboard setup` opens a GitHub login flow in your browser, creates a
-user-bound API token on the Tokenboard server, and saves the configuration in
-`~/.tokenboard/config.toml`.
-
-Useful commands:
-
-```bash
-tokenboard scan --today
-tokenboard scan --week
-tokenboard scan -c claude,codex
-tokenboard sync --dry-run
-tokenboard sync --week
-tokenboard autosync install
-tokenboard autosync status
-tokenboard update check
-tokenboard update install
-```
 
 ## Install The CLI
 
