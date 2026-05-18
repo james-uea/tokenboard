@@ -16,11 +16,32 @@ function Get-TokenboardAsset {
 }
 
 function Get-ReleasePath {
-    if ($Version -eq "latest") {
-        "latest/download"
-    } else {
+    if ($Version -ne "latest") {
         "download/$Version"
+        return
     }
+
+    $headers = @{ Accept = "application/vnd.github+json" }
+    if ($env:GITHUB_TOKEN) {
+        $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN"
+    }
+
+    try {
+        $release = Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/$Repo/releases/latest" `
+            -Headers $headers `
+            -UseBasicParsing
+
+        if ($release.tag_name) {
+            Write-Host "Resolved latest release: $($release.tag_name)"
+            "download/$($release.tag_name)"
+            return
+        }
+    } catch {
+        Write-Warning "Could not resolve latest release tag; falling back to GitHub latest redirect."
+    }
+
+    "latest/download"
 }
 
 function Invoke-Download {

@@ -2,6 +2,12 @@
 
 All notable changes to Tokenboard will be documented in this file.
 
+## 1.0.12 - 2026-05-18
+
+- Resolve `latest` to a concrete GitHub release tag in the Bash and PowerShell
+  installers before downloading assets, avoiding stale `/latest/download`
+  redirects after new platform assets are published.
+
 ## 1.0.11 - 2026-05-18
 
 - Add static Linux ARM64 and 32-bit ARM release assets for Raspberry Pi and

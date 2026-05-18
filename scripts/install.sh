@@ -6,6 +6,7 @@ REPO="${TOKENBOARD_REPO:-james-uea/tokenboard}"
 VERSION="${TOKENBOARD_VERSION:-latest}"
 INSTALL_DIR="${TOKENBOARD_INSTALL_DIR:-}"
 TOKENBOARD_TMP_DIR=""
+TOKENBOARD_RELEASE_PATH=""
 
 usage() {
   cat >&2 <<'USAGE'
@@ -131,14 +132,44 @@ curl_download() {
   fi
 }
 
+resolve_release_path() {
+  if [[ -n "$TOKENBOARD_RELEASE_PATH" ]]; then
+    echo "$TOKENBOARD_RELEASE_PATH"
+    return
+  fi
+
+  if [[ "$VERSION" != "latest" ]]; then
+    TOKENBOARD_RELEASE_PATH="download/$VERSION"
+    echo "$TOKENBOARD_RELEASE_PATH"
+    return
+  fi
+
+  local latest_url="https://api.github.com/repos/$REPO/releases/latest"
+  local response tag
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    response="$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "$latest_url" 2>/dev/null || true)"
+  else
+    response="$(curl -fsSL -H "Accept: application/vnd.github+json" "$latest_url" 2>/dev/null || true)"
+  fi
+
+  tag="$(printf '%s\n' "$response" | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -n 1)"
+  if [[ -n "$tag" ]]; then
+    TOKENBOARD_RELEASE_PATH="download/$tag"
+    echo "Resolved latest release: $tag" >&2
+  else
+    TOKENBOARD_RELEASE_PATH="latest/download"
+    echo "Could not resolve latest release tag; falling back to GitHub latest redirect." >&2
+  fi
+
+  echo "$TOKENBOARD_RELEASE_PATH"
+}
+
 download_with_curl() {
   local asset="$1" tmp="$2"
   need curl
 
-  local release_path="latest/download"
-  if [[ "$VERSION" != "latest" ]]; then
-    release_path="download/$VERSION"
-  fi
+  local release_path
+  release_path="$(resolve_release_path)"
 
   rm -f "$tmp/$asset" "$tmp/$asset.sha256"
 
