@@ -1,6 +1,7 @@
 import { Router } from "express";
 import pool from "../db.js";
 import authMiddleware from "../middleware/auth.js";
+import { normalizeProviderName } from "../lib/providers.js";
 
 const router = Router();
 const MAX_USERNAME_LENGTH = 64;
@@ -89,7 +90,7 @@ function normalizeModelBreakdown(value, fieldName) {
 					MAX_TOTAL_COST
 				)
 			),
-			provider: typeof rawEntry.provider === "string" ? rawEntry.provider.trim() : "",
+			provider: normalizeProviderName(rawEntry.provider),
 			source: typeof rawEntry.source === "string" ? rawEntry.source.trim() : "",
 		};
 	}

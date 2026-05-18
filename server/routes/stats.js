@@ -1,5 +1,6 @@
 import { Router } from "express";
 import pool from "../db.js";
+import { normalizeProviderName } from "../lib/providers.js";
 
 const router = Router();
 const MAX_USERNAME_LENGTH = 64;
@@ -360,34 +361,59 @@ router.get("/:username", async (req, res) => {
 		const cacheWriteTokens = toInt(row.cache_write_tokens);
 		const reasoningTokens = toInt(row.reasoning_tokens);
 
-		const modelBreakdown = modelsResult.rows.map((entry) => {
+		const modelAccumulator = new Map();
+		for (const entry of modelsResult.rows) {
 			const tokens = toInt(entry.tokens);
 			const inputT = toInt(entry.input_tokens);
 			const outputT = toInt(entry.output_tokens);
 			const cacheRead = toInt(entry.cache_read_tokens);
 			const cacheWrite = toInt(entry.cache_write_tokens);
-			const cacheRate = (cacheRead + cacheWrite) > 0
-				? Number(((cacheRead / (cacheRead + cacheWrite)) * 100).toFixed(1))
-				: 0;
 			// Parse model_key: "model_name|agent" → model_name and source
 			const pipeIdx = entry.model_key.lastIndexOf("|");
 			const modelName = pipeIdx >= 0 ? entry.model_key.substring(0, pipeIdx) : entry.model_key;
 			const modelSource = pipeIdx >= 0 ? entry.model_key.substring(pipeIdx + 1) : (entry.source || "");
-			return {
+			const provider = normalizeProviderName(entry.provider);
+			const accumulatorKey = `${modelName}\0${provider}\0${modelSource}`;
+			const current = modelAccumulator.get(accumulatorKey) || {
 				model: modelName,
-				provider: entry.provider || "",
+				provider,
 				source: modelSource,
-				tokens,
-				input_tokens: inputT,
-				output_tokens: outputT,
-				cache_read_tokens: cacheRead,
-				cache_write_tokens: cacheWrite,
-				cache_rate: cacheRate,
-				total_tokens: tokens,
-				total_cost: toFloat(entry.total_cost),
-				share_of_total: totalTokens > 0 ? Number((tokens / totalTokens).toFixed(4)) : 0,
+				tokens: 0,
+				input_tokens: 0,
+				output_tokens: 0,
+				cache_read_tokens: 0,
+				cache_write_tokens: 0,
+				total_cost: 0,
 			};
-		});
+
+			current.tokens += tokens;
+			current.input_tokens += inputT;
+			current.output_tokens += outputT;
+			current.cache_read_tokens += cacheRead;
+			current.cache_write_tokens += cacheWrite;
+			current.total_cost += toFloat(entry.total_cost);
+			modelAccumulator.set(accumulatorKey, current);
+		}
+
+		const modelBreakdown = [...modelAccumulator.values()]
+			.map((entry) => {
+				const cacheTotal = entry.cache_read_tokens + entry.cache_write_tokens;
+				return {
+					...entry,
+					cache_rate: cacheTotal > 0
+						? Number(((entry.cache_read_tokens / cacheTotal) * 100).toFixed(1))
+						: 0,
+					total_tokens: entry.tokens,
+					total_cost: Number(entry.total_cost.toFixed(6)),
+					share_of_total: totalTokens > 0 ? Number((entry.tokens / totalTokens).toFixed(4)) : 0,
+				};
+			})
+			.sort((left, right) =>
+				right.tokens - left.tokens ||
+				left.model.localeCompare(right.model) ||
+				left.provider.localeCompare(right.provider) ||
+				left.source.localeCompare(right.source)
+			);
 
 		const clientBreakdown = clientsResult.rows.map((entry) => {
 			const tokens = toInt(entry.tokens);

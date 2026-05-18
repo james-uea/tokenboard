@@ -51,6 +51,21 @@ function summaryRow() {
 	};
 }
 
+function modelRow(overrides = {}) {
+	return {
+		model_key: "gpt-5.5|Hermes",
+		provider: "Custom:api.example.com",
+		source: "Hermes",
+		tokens: "100",
+		input_tokens: "40",
+		output_tokens: "10",
+		cache_read_tokens: "50",
+		cache_write_tokens: "0",
+		total_cost: "0.123456",
+		...overrides,
+	};
+}
+
 beforeEach(() => {
 	mockDb.query.mockReset();
 	mockDb.connect.mockReset();
@@ -128,5 +143,50 @@ describe("stats API timeline", () => {
 		expect(response.body.diffs.day_over_day.map((entry) => entry.delta_total_tokens)).toEqual([-100, 0]);
 		expect(response.body.diffs.largest_decreases).toHaveLength(1);
 		expect(response.body.diffs.largest_decreases[0].date.slice(0, 10)).toBe("2026-05-16");
+	});
+
+	it("normalizes stored custom provider hostnames in model stats", async () => {
+		mockDb.query
+			.mockResolvedValueOnce({ rows: [summaryRow()] })
+			.mockResolvedValueOnce({ rows: [timelineRow("2026-05-15", 300)] })
+			.mockResolvedValueOnce({
+				rows: [
+					modelRow({
+						provider: "Custom:api.one.example",
+						tokens: "100",
+						input_tokens: "40",
+						output_tokens: "10",
+						cache_read_tokens: "50",
+						total_cost: "0.123456",
+					}),
+					modelRow({
+						provider: "custom:api.two.example",
+						tokens: "200",
+						input_tokens: "80",
+						output_tokens: "20",
+						cache_read_tokens: "100",
+						total_cost: "0.654321",
+					}),
+				],
+			})
+			.mockResolvedValueOnce({ rows: [] });
+
+		const response = await request(app).get("/api/stats/octocat").expect(200);
+
+		expect(response.body.models).toHaveLength(1);
+		expect(response.body.models[0]).toMatchObject({
+			model: "gpt-5.5",
+			provider: "Custom",
+			source: "Hermes",
+			tokens: 300,
+			input_tokens: 120,
+			output_tokens: 30,
+			cache_read_tokens: 150,
+			cache_write_tokens: 0,
+			total_tokens: 300,
+			total_cost: 0.777777,
+		});
+		expect(JSON.stringify(response.body.models)).not.toContain("api.one.example");
+		expect(JSON.stringify(response.body.models)).not.toContain("api.two.example");
 	});
 });

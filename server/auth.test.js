@@ -405,6 +405,60 @@ describe("submission authentication", () => {
 		expect(response.body.display_name).toBe("The Octocat");
 	});
 
+	it("stores custom model providers without custom hostnames", async () => {
+		mockDb.query
+			.mockResolvedValueOnce({
+				rows: [{
+					token_id: 99,
+					id: 7,
+					username: "octocat",
+					display_name: "The Octocat",
+					github_id: "583231",
+					github_login: "octocat",
+				}],
+			})
+			.mockResolvedValueOnce({ rows: [] });
+
+		const contribution = minimalContribution();
+		contribution.models = {
+			"gpt-5.5|Hermes": {
+				tokens: 100,
+				input: 40,
+				output: 10,
+				cache_read: 50,
+				cache_write: 0,
+				cost: 0.123456,
+				provider: "Custom:api.example.com",
+				source: "Hermes",
+			},
+		};
+
+		const submitClient = makeDbClient((sql, params) => {
+			if (sql === "BEGIN" || sql === "COMMIT") return Promise.resolve({ rows: [] });
+			if (String(sql).includes("UPDATE users")) {
+				return Promise.resolve({ rows: [{ id: 7 }] });
+			}
+			if (String(sql).includes("INSERT INTO submissions")) {
+				const models = JSON.parse(params[9]);
+				expect(models["gpt-5.5|Hermes"].provider).toBe("Custom");
+				expect(JSON.stringify(models)).not.toContain("api.example.com");
+				return Promise.resolve({ rows: [] });
+			}
+			throw new Error(`Unexpected submit query: ${sql}`);
+		});
+		mockDb.connect.mockResolvedValueOnce(submitClient);
+
+		await request(app)
+			.post("/api/submit")
+			.set("Authorization", "Bearer tbp_valid")
+			.send({
+				username: "mallory",
+				display_name: "Mallory",
+				contributions: [contribution],
+			})
+			.expect(200);
+	});
+
 	it("rejects the legacy shared API key unless explicitly enabled", async () => {
 		mockDb.query.mockResolvedValueOnce({ rows: [] });
 

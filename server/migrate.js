@@ -53,6 +53,30 @@ UPDATE submissions
 SET models = '{}'::jsonb
 WHERE models IS NULL OR jsonb_typeof(models) <> 'object';
 
+WITH normalized_models AS (
+  SELECT
+    s.id,
+    jsonb_object_agg(
+      model_entry.key,
+      CASE
+        WHEN LOWER(BTRIM(model_entry.value->>'provider')) = 'custom'
+          OR LOWER(BTRIM(model_entry.value->>'provider')) LIKE 'custom:%'
+        THEN jsonb_set(model_entry.value, '{provider}', to_jsonb('Custom'::text), true)
+        ELSE model_entry.value
+      END
+    ) AS models
+  FROM submissions s
+  CROSS JOIN LATERAL jsonb_each(
+    CASE WHEN jsonb_typeof(s.models) = 'object' THEN s.models ELSE '{}'::jsonb END
+  ) AS model_entry(key, value)
+  GROUP BY s.id
+)
+UPDATE submissions s
+SET models = normalized_models.models
+FROM normalized_models
+WHERE s.id = normalized_models.id
+  AND s.models <> normalized_models.models;
+
 UPDATE submissions
 SET clients = '{}'::jsonb
 WHERE clients IS NULL OR jsonb_typeof(clients) <> 'object';
