@@ -1385,6 +1385,11 @@ watch(searchQuery, () => {
           rel="noopener noreferrer"
           aria-label="Install the Tokenboard CLI from GitHub"
         >
+          <span class="install-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 19 19" focusable="false">
+              <use href="/icons.svg#github-icon"></use>
+            </svg>
+          </span>
           Install the CLI
         </a>
       </div>
