@@ -81,6 +81,7 @@ describe("stats API timeline", () => {
 		]);
 		expect(response.body.timeline.map((entry) => entry.total_tokens)).toEqual([100, 0, 0]);
 		expect(response.body.timeline.map((entry) => entry.running_total_tokens)).toEqual([100, 100, 100]);
+		expect(response.body.timeline.map((entry) => entry.has_data)).toEqual([true, false, false]);
 		expect(response.body.diffs.day_over_day.map((entry) => entry.date.slice(0, 10))).toEqual([
 			"2026-05-16",
 			"2026-05-17",
@@ -93,6 +94,26 @@ describe("stats API timeline", () => {
 			delta_total_tokens: 0,
 			percent_change: 0,
 		});
+	});
+
+	it("distinguishes real future data from padded future gaps", async () => {
+		mockDb.query
+			.mockResolvedValueOnce({ rows: [summaryRow()] })
+			.mockResolvedValueOnce({ rows: [timelineRow("2026-05-15", 100), timelineRow("2026-05-19", 25)] })
+			.mockResolvedValueOnce({ rows: [] })
+			.mockResolvedValueOnce({ rows: [] });
+
+		const response = await request(app).get("/api/stats/octocat").expect(200);
+
+		expect(response.body.timeline.map((entry) => entry.date.slice(0, 10))).toEqual([
+			"2026-05-15",
+			"2026-05-16",
+			"2026-05-17",
+			"2026-05-18",
+			"2026-05-19",
+		]);
+		expect(response.body.timeline.map((entry) => entry.total_tokens)).toEqual([100, 0, 0, 0, 25]);
+		expect(response.body.timeline.map((entry) => entry.has_data)).toEqual([true, false, false, false, true]);
 	});
 
 	it("fills missing usage days through today in the standalone diffs endpoint", async () => {

@@ -238,6 +238,38 @@ function dateKey(value) {
   return String(value).slice(0, 10)
 }
 
+function browserCalendarDateKey(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function hasTimelineData(entry) {
+  if (!entry || typeof entry !== "object") return false
+  if (Object.prototype.hasOwnProperty.call(entry, "has_data")) {
+    return entry.has_data === true
+  }
+  return CHART_DIFF_FIELDS.some((field) => Number(entry?.[field] ?? 0) > 0)
+}
+
+function isPlottableTimelineEntry(entry, todayKey = browserCalendarDateKey()) {
+  const key = dateKey(entry?.date)
+  return !!key && (key <= todayKey || hasTimelineData(entry))
+}
+
+function latestDataDateKey(timeline) {
+  const dates = Array.isArray(timeline)
+    ? timeline.map((entry) => hasTimelineData(entry) ? dateKey(entry?.date) : "").filter(Boolean).sort()
+    : []
+  return dates.length > 0 ? dates[dates.length - 1] : ""
+}
+
+function latestPlottableDateKey(timeline, todayKey = browserCalendarDateKey()) {
+  const latestDataDate = latestDataDateKey(timeline)
+  return latestDataDate > todayKey ? latestDataDate : todayKey
+}
+
 function dateRangeFromContributions(contributions = ghContributions.value) {
   const dates = Array.isArray(contributions)
     ? contributions.map((entry) => dateKey(entry?.date)).filter(Boolean).sort()
@@ -259,6 +291,7 @@ function addDateDays(key, days) {
 function emptyTimelineEntry(key, runningTotalTokens = 0) {
   return {
     date: `${key}T00:00:00.000Z`,
+    has_data: false,
     total_tokens: 0,
     total_cost: 0,
     input_tokens: 0,
@@ -273,10 +306,13 @@ function emptyTimelineEntry(key, runningTotalTokens = 0) {
 function timelineForHeatmapWindow(timeline) {
   if (!Array.isArray(timeline) || timeline.length === 0) return []
 
+  const todayKey = browserCalendarDateKey()
   const range = dateRangeFromContributions()
   if (range) {
     const sorted = [...timeline].sort((left, right) => dateKey(left?.date).localeCompare(dateKey(right?.date)))
     const byDate = new Map(sorted.map((entry) => [dateKey(entry?.date), entry]).filter(([key]) => key))
+    const latestPlottableDate = latestPlottableDateKey(sorted, todayKey)
+    const endDate = range.end < latestPlottableDate ? range.end : latestPlottableDate
     let runningTotalTokens = 0
     for (const entry of sorted) {
       const key = dateKey(entry?.date)
@@ -285,19 +321,19 @@ function timelineForHeatmapWindow(timeline) {
     }
 
     const window = []
-    for (let key = range.start; key <= range.end; key = addDateDays(key, 1)) {
+    for (let key = range.start; key <= endDate; key = addDateDays(key, 1)) {
       const entry = byDate.get(key)
       if (entry) {
         runningTotalTokens = Number(entry.running_total_tokens ?? runningTotalTokens + Number(entry.total_tokens ?? 0))
-        window.push(entry)
-      } else {
+        if (isPlottableTimelineEntry(entry, todayKey)) window.push(entry)
+      } else if (key <= todayKey) {
         window.push(emptyTimelineEntry(key, runningTotalTokens))
       }
     }
     return window
   }
 
-  return timeline.slice(-HEATMAP_VISIBLE_DAYS)
+  return timeline.filter((entry) => isPlottableTimelineEntry(entry, todayKey)).slice(-HEATMAP_VISIBLE_DAYS)
 }
 
 function dayOverDayForTimelineWindow(dayOverDay, timelineWindow) {
@@ -390,10 +426,12 @@ const ghMerged = computed(() => {
 // Build token map from stats timeline once stats load
 function buildTokenMap(timeline) {
   const map = {}
+  const todayKey = browserCalendarDateKey()
   if (Array.isArray(timeline)) {
     for (const entry of timeline) {
       const dateOnly = String(entry.date || '').slice(0, 10)
       if (!dateOnly) continue
+      if (!isPlottableTimelineEntry(entry, todayKey)) continue
       map[dateOnly] = { total_tokens: Number(entry.total_tokens ?? 0) }
     }
   }
@@ -486,7 +524,7 @@ function applyUserStatsPayload(stats) {
     Number(stats.reasoning_tokens ?? 0),
   ]
 
-  timelineEmpty.value = tl.length === 0
+  timelineEmpty.value = !tl.some((entry) => isPlottableTimelineEntry(entry))
   tokenMixEmpty.value = !td.some((v) => v > 0)
   modelMixEmpty.value = md.length === 0
   diffEmpty.value = !(stats.diffs?.day_over_day?.length > 0)

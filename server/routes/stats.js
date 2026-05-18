@@ -74,6 +74,7 @@ function buildDenseTimeline(rows, throughDateKey = todayDateKey()) {
 		runningTotalTokens += dayTotalTokens;
 		timeline.push({
 			date: dateKeyToIso(key),
+			has_data: Boolean(entry),
 			total_tokens: dayTotalTokens,
 			total_cost: entry ? toFloat(entry.total_cost) : 0,
 			input_tokens: entry ? toInt(entry.input_tokens) : 0,
