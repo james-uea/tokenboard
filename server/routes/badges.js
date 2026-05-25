@@ -163,6 +163,24 @@ router.get("/", async (req, res) => {
       badges.push(buildBadge("cache-cow", "💾", "Cache Cow", "Most cache read tokens saved", result.rows[0]));
     }
 
+    // ── 💎 Cache Purist: highest cache read share ──
+    {
+      const result = await pool.query(`
+        SELECT u.username, u.display_name,
+               SUM(s.cache_read_tokens)::bigint AS cache_read,
+               SUM(s.total_tokens)::bigint AS total,
+               (SUM(s.cache_read_tokens)::numeric / SUM(s.total_tokens)::numeric * 100) AS value
+        FROM submissions s
+        JOIN users u ON u.id = s.user_id
+        GROUP BY u.id, u.username, u.display_name
+        HAVING SUM(s.total_tokens) > 0 AND SUM(s.cache_read_tokens) > 0
+        ORDER BY value DESC, cache_read DESC LIMIT 1
+      `);
+      const row = result.rows[0];
+      badges.push(buildBadge("cache-purist", "💎", "Cache Purist", "Highest cache-read share", row, (v) => `${Number(v).toFixed(1)}%`));
+      if (row) badges[badges.length - 1].detail = `${Number(row.cache_read).toLocaleString()} cache read / ${Number(row.total).toLocaleString()} total`;
+    }
+
     // ── 🏃 Marathoner: most active days ──
     {
       const result = await pool.query(`

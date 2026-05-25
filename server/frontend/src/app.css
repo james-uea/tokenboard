@@ -1818,6 +1818,18 @@ tbody tr:hover {
 .badge-medal.speed-demon .badge-medal-label { color: #a5b4fc; }
 .badge-medal.speed-demon .badge-medal-value { color: #06d6d0; }
 
+/* Cache Purist — crystalline cache efficiency */
+.badge-medal.cache-purist .badge-medal-icon {
+  background: linear-gradient(135deg, #38bdf8 0%, #06d6d0 50%, #a7f3d0 100%);
+  border-color: rgba(56, 189, 248, 0.32);
+}
+.badge-medal.cache-purist:hover .badge-medal-icon {
+  border-color: rgba(6, 214, 208, 0.55);
+  box-shadow: 0 0 20px rgba(6, 214, 208, 0.2), 0 0 4px rgba(56, 189, 248, 0.24);
+}
+.badge-medal.cache-purist .badge-medal-label { color: #67e8f9; }
+.badge-medal.cache-purist .badge-medal-value { color: #a7f3d0; }
+
 /* Inline badge pill next to username in leaderboard */
 .badge-pill {
   display: inline-flex;
