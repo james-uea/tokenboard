@@ -165,7 +165,19 @@ router.get("/:username/diffs", async (req, res) => {
 
 	try {
 		const timelineResult = await pool.query(
-			`WITH daily AS (
+			`WITH effective_submissions AS (
+         SELECT s.*
+         FROM submissions s
+         WHERE s.submission_source <> 0
+            OR NOT EXISTS (
+              SELECT 1
+              FROM submissions replacement
+              WHERE replacement.user_id = s.user_id
+                AND replacement.date = s.date
+                AND replacement.submission_source <> 0
+            )
+       ),
+       daily AS (
          SELECT
            s.date,
            SUM(s.total_tokens)::bigint AS total_tokens,
@@ -175,7 +187,7 @@ router.get("/:username/diffs", async (req, res) => {
            SUM(s.cache_read_tokens)::bigint AS cache_read_tokens,
            SUM(s.cache_write_tokens)::bigint AS cache_write_tokens,
            SUM(s.reasoning_tokens)::bigint AS reasoning_tokens
-         FROM submissions s
+         FROM effective_submissions s
          JOIN users u ON u.id = s.user_id
          WHERE u.username = $1
          GROUP BY s.date
@@ -225,7 +237,19 @@ router.get("/:username", async (req, res) => {
 
 	try {
 		const summaryResult = await pool.query(
-			`WITH daily AS (
+			`WITH effective_submissions AS (
+         SELECT s.*
+         FROM submissions s
+         WHERE s.submission_source <> 0
+            OR NOT EXISTS (
+              SELECT 1
+              FROM submissions replacement
+              WHERE replacement.user_id = s.user_id
+                AND replacement.date = s.date
+                AND replacement.submission_source <> 0
+            )
+       ),
+       daily AS (
          SELECT
            s.user_id,
            s.date,
@@ -237,7 +261,7 @@ router.get("/:username", async (req, res) => {
            SUM(s.cache_write_tokens)::bigint AS cache_write_tokens,
            SUM(s.reasoning_tokens)::bigint AS reasoning_tokens,
            MAX(s.submitted_at) AS last_updated
-         FROM submissions s
+         FROM effective_submissions s
          GROUP BY s.user_id, s.date
        )
        SELECT
@@ -268,7 +292,19 @@ router.get("/:username", async (req, res) => {
 
 		const row = summaryResult.rows[0];
 		const timelineResult = await pool.query(
-			`WITH daily AS (
+			`WITH effective_submissions AS (
+         SELECT s.*
+         FROM submissions s
+         WHERE s.submission_source <> 0
+            OR NOT EXISTS (
+              SELECT 1
+              FROM submissions replacement
+              WHERE replacement.user_id = s.user_id
+                AND replacement.date = s.date
+                AND replacement.submission_source <> 0
+            )
+       ),
+       daily AS (
          SELECT
            s.date,
            SUM(s.total_tokens)::bigint AS total_tokens,
@@ -278,7 +314,7 @@ router.get("/:username", async (req, res) => {
            SUM(s.cache_read_tokens)::bigint AS cache_read_tokens,
            SUM(s.cache_write_tokens)::bigint AS cache_write_tokens,
            SUM(s.reasoning_tokens)::bigint AS reasoning_tokens
-         FROM submissions s
+         FROM effective_submissions s
          JOIN users u ON u.id = s.user_id
          WHERE u.username = $1
          GROUP BY s.date
@@ -298,7 +334,19 @@ router.get("/:username", async (req, res) => {
 		);
 
 		const modelsResult = await pool.query(
-			`SELECT
+			`WITH effective_submissions AS (
+         SELECT s.*
+         FROM submissions s
+         WHERE s.submission_source <> 0
+            OR NOT EXISTS (
+              SELECT 1
+              FROM submissions replacement
+              WHERE replacement.user_id = s.user_id
+                AND replacement.date = s.date
+                AND replacement.submission_source <> 0
+            )
+       )
+       SELECT
          model_entry.key AS model_key,
          model_entry.value->>'provider' AS provider,
          model_entry.value->>'source' AS source,
@@ -344,7 +392,7 @@ router.get("/:username", async (req, res) => {
              ELSE 0::numeric
            END
          )::numeric(14,6) AS total_cost
-       FROM submissions s
+       FROM effective_submissions s
        JOIN users u ON u.id = s.user_id
        LEFT JOIN LATERAL jsonb_each(
          CASE
@@ -360,7 +408,19 @@ router.get("/:username", async (req, res) => {
 		);
 
 		const clientsResult = await pool.query(
-			`SELECT
+			`WITH effective_submissions AS (
+         SELECT s.*
+         FROM submissions s
+         WHERE s.submission_source <> 0
+            OR NOT EXISTS (
+              SELECT 1
+              FROM submissions replacement
+              WHERE replacement.user_id = s.user_id
+                AND replacement.date = s.date
+                AND replacement.submission_source <> 0
+            )
+       )
+       SELECT
          client_entry.key AS client_name,
          SUM(
            CASE
@@ -376,7 +436,7 @@ router.get("/:username", async (req, res) => {
              ELSE 0::numeric
            END
          )::numeric(14,6) AS total_cost
-       FROM submissions s
+       FROM effective_submissions s
        JOIN users u ON u.id = s.user_id
        LEFT JOIN LATERAL jsonb_each(
          CASE

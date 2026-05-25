@@ -56,7 +56,9 @@ describe("badges API", () => {
 			query.includes("d.total_tokens::bigint AS value, d.date")
 		)?.[0];
 
-		expect(speedQuery).toContain("WITH daily AS (");
+		expect(speedQuery).toContain("effective_submissions AS");
+		expect(speedQuery).toContain("replacement.submission_source <> 0");
+		expect(speedQuery).toContain("FROM effective_submissions s");
 		expect(speedQuery).toContain("GROUP BY s.user_id, s.date");
 		expect(speedQuery).toContain("ORDER BY d.total_tokens DESC LIMIT 1");
 		expect(badge).toMatchObject({
@@ -95,7 +97,9 @@ describe("badges API", () => {
 			query.includes("JOIN ranked b ON b.user_id = a.user_id AND b.rn = a.rn - 7")
 		)?.[0];
 
-		expect(risingQuery).toContain("WITH daily AS (");
+		expect(risingQuery).toContain("effective_submissions AS");
+		expect(risingQuery).toContain("replacement.submission_source <> 0");
+		expect(risingQuery).toContain("FROM effective_submissions s");
 		expect(risingQuery).toContain("SUM(s.total_tokens) AS total_tokens");
 		expect(risingQuery).toContain("GROUP BY s.user_id, s.date");
 		expect(risingQuery).toContain("ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY date)");

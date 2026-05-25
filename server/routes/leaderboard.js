@@ -99,7 +99,19 @@ router.get("/", async (req, res) => {
 	const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
 
 	const query = `
-    WITH filtered AS (
+    WITH effective_submissions AS (
+      SELECT s.*
+      FROM submissions s
+      WHERE s.submission_source <> 0
+         OR NOT EXISTS (
+           SELECT 1
+           FROM submissions replacement
+           WHERE replacement.user_id = s.user_id
+             AND replacement.date = s.date
+             AND replacement.submission_source <> 0
+         )
+    ),
+    filtered AS (
       SELECT
         u.id AS user_id,
         u.username,
@@ -114,7 +126,7 @@ router.get("/", async (req, res) => {
         s.reasoning_tokens,
         s.models,
         s.submitted_at
-      FROM submissions s
+      FROM effective_submissions s
       JOIN users u ON u.id = s.user_id
       ${whereClause}
     ),

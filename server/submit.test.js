@@ -74,15 +74,28 @@ describe("submit API source-aware upserts", () => {
 			});
 
 		const tokenSources = [];
+		const adoptedSources = [];
+		const deletedFallbacks = [];
 		const submitClient = () =>
 			makeDbClient((sql, params) => {
 				if (sql === "BEGIN" || sql === "COMMIT") return Promise.resolve({ rows: [] });
 				if (String(sql).includes("UPDATE users")) return Promise.resolve({ rows: [{ id: 7 }] });
+				if (String(sql).includes("UPDATE submissions s")) {
+					expect(sql).toContain("s.submission_source = 0");
+					expect(sql).toContain("NOT EXISTS");
+					adoptedSources.push(params[2]);
+					return Promise.resolve({ rows: [] });
+				}
 				if (String(sql).includes("INSERT INTO submissions")) {
 					tokenSources.push(params[9]);
 					expect(sql).toContain("(user_id, date, total_tokens, total_cost,");
 					expect(sql).toContain("submission_source");
 					expect(sql).toContain("ON CONFLICT (user_id, date, submission_source)");
+					return Promise.resolve({ rows: [] });
+				}
+				if (String(sql).includes("DELETE FROM submissions")) {
+					expect(sql).toContain("submission_source = 0");
+					deletedFallbacks.push(params[0]);
 					return Promise.resolve({ rows: [] });
 				}
 				throw new Error(`Unexpected submit query: ${sql}`);
@@ -102,6 +115,8 @@ describe("submit API source-aware upserts", () => {
 		await request(app).post("/api/submit").set("Authorization", "Bearer tbp_token_two").send(body).expect(200);
 
 		expect(tokenSources).toEqual([101, 102]);
+		expect(adoptedSources).toEqual([101, 102]);
+		expect(deletedFallbacks).toEqual([7, 7]);
 	});
 
 	it("reuses the same submission source when the same token submits again", async () => {
@@ -117,13 +132,23 @@ describe("submit API source-aware upserts", () => {
 			});
 
 		const tokenSources = [];
+		const adoptedSources = [];
+		const deletedFallbacks = [];
 		const submitClient = () =>
 			makeDbClient((sql, params) => {
 				if (sql === "BEGIN" || sql === "COMMIT") return Promise.resolve({ rows: [] });
 				if (String(sql).includes("UPDATE users")) return Promise.resolve({ rows: [{ id: 7 }] });
+				if (String(sql).includes("UPDATE submissions s")) {
+					adoptedSources.push(params[2]);
+					return Promise.resolve({ rows: [] });
+				}
 				if (String(sql).includes("INSERT INTO submissions")) {
 					tokenSources.push(params[9]);
 					expect(sql).toContain("ON CONFLICT (user_id, date, submission_source)");
+					return Promise.resolve({ rows: [] });
+				}
+				if (String(sql).includes("DELETE FROM submissions")) {
+					deletedFallbacks.push(params[0]);
 					return Promise.resolve({ rows: [] });
 				}
 				throw new Error(`Unexpected submit query: ${sql}`);
@@ -141,5 +166,58 @@ describe("submit API source-aware upserts", () => {
 		await request(app).post("/api/submit").set("Authorization", "Bearer tbp_token_replay").send(body).expect(200);
 
 		expect(tokenSources).toEqual([202, 202]);
+		expect(adoptedSources).toEqual([202, 202]);
+		expect(deletedFallbacks).toEqual([7, 7]);
+	});
+
+	it("adopts migrated source-zero rows before writing token submissions", async () => {
+		mockDb.query.mockImplementation((sql) => {
+			if (String(sql).includes("t.id AS token_id")) {
+				return Promise.resolve({ rows: [buildTokenRow(303)] });
+			}
+			if (String(sql).includes("UPDATE user_api_tokens")) {
+				return Promise.resolve({ rows: [] });
+			}
+			throw new Error(`Unexpected auth query: ${sql}`);
+		});
+
+		const queries = [];
+		const submitClient = makeDbClient((sql, params) => {
+			queries.push(String(sql));
+			if (sql === "BEGIN" || sql === "COMMIT") return Promise.resolve({ rows: [] });
+			if (String(sql).includes("UPDATE users")) return Promise.resolve({ rows: [{ id: 7 }] });
+			if (String(sql).includes("UPDATE submissions s")) {
+				expect(params).toEqual([7, "2026-05-20", 303]);
+				expect(sql).toContain("SET submission_source = $3");
+				expect(sql).toContain("s.submission_source = 0");
+				expect(sql).toContain("token_source.submission_source = $3");
+				return Promise.resolve({ rows: [] });
+			}
+			if (String(sql).includes("INSERT INTO submissions")) {
+				expect(params[9]).toBe(303);
+				return Promise.resolve({ rows: [] });
+			}
+			if (String(sql).includes("DELETE FROM submissions")) {
+				expect(params).toEqual([7, "2026-05-20"]);
+				expect(sql).toContain("submission_source = 0");
+				return Promise.resolve({ rows: [] });
+			}
+			throw new Error(`Unexpected submit query: ${sql}`);
+		});
+		mockDb.connect.mockResolvedValueOnce(submitClient);
+
+		await request(app)
+			.post("/api/submit")
+			.set("Authorization", "Bearer tbp_token_adopt")
+			.send({
+				username: "mallory",
+				display_name: "Mallory",
+				contributions: [minimalContribution()],
+			})
+			.expect(200);
+
+		expect(queries.findIndex((sql) => sql.includes("UPDATE submissions s"))).toBeLessThan(
+			queries.findIndex((sql) => sql.includes("INSERT INTO submissions")),
+		);
 	});
 });

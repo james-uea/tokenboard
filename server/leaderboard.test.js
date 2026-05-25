@@ -83,6 +83,9 @@ describe("leaderboard API search", () => {
 		const response = await request(app).get("/api/leaderboard?q=octo").expect(200);
 		const [sql] = mockDb.query.mock.calls[0];
 
+		expect(sql).toContain("effective_submissions AS");
+		expect(sql).toContain("replacement.submission_source <> 0");
+		expect(sql).toContain("FROM effective_submissions s");
 		expect(sql).toContain("GROUP BY user_id, username, display_name, date");
 		expect(sql).toContain("SUM(total_tokens)::bigint AS total_tokens");
 		expect(sql).toContain("COUNT(*)::int AS total_submissions");

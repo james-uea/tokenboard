@@ -212,6 +212,8 @@ describe("stats API timeline", () => {
 		expect(response.body.total_tokens).toBe(200);
 		expect(response.body.timeline).toHaveLength(1);
 		expect(response.body.timeline[0].total_tokens).toBe(200);
+		expect(timelineQuery).toContain("effective_submissions AS");
+		expect(timelineQuery).toContain("replacement.submission_source <> 0");
 		expect(timelineQuery).toContain("GROUP BY s.date");
 		expect(timelineQuery).toContain("SUM(s.total_tokens)");
 	});
@@ -227,7 +229,8 @@ describe("stats API timeline", () => {
 		const response = await request(app).get("/api/stats/octocat/diffs").expect(200);
 		const diffsQuery = mockDb.query.mock.calls[0][0];
 
-		expect(diffsQuery).toContain("WITH daily AS (");
+		expect(diffsQuery).toContain("effective_submissions AS");
+		expect(diffsQuery).toContain("replacement.submission_source <> 0");
 		expect(diffsQuery).toContain("GROUP BY s.date");
 		expect(diffsQuery).toContain("SUM(s.total_tokens)");
 		expect(response.body.diffs.day_over_day).toHaveLength(1);
@@ -235,5 +238,52 @@ describe("stats API timeline", () => {
 			date: "2026-05-17T00:00:00.000Z",
 			delta_total_tokens: 80,
 		});
+	});
+
+	it("uses source-zero fallback de-duplication for summary, models, and clients", async () => {
+		mockDb.query
+			.mockResolvedValueOnce({
+				rows: [
+					{
+						...summaryRow(),
+						total_submissions: 1,
+						active_days: 1,
+						total_tokens: "2700",
+					},
+				],
+			})
+			.mockResolvedValueOnce({ rows: [timelineRow("2026-05-20", 2700)] })
+			.mockResolvedValueOnce({
+				rows: [
+					modelRow({
+						tokens: "2700",
+						input_tokens: "1200",
+						output_tokens: "300",
+					}),
+				],
+			})
+			.mockResolvedValueOnce({
+				rows: [
+					{
+						client_name: "cli",
+						tokens: "2700",
+						total_cost: "1.500000",
+					},
+				],
+			});
+
+		const response = await request(app).get("/api/stats/octocat").expect(200);
+		const [summaryQuery] = mockDb.query.mock.calls[0];
+		const [modelQuery] = mockDb.query.mock.calls[2];
+		const [clientQuery] = mockDb.query.mock.calls[3];
+
+		for (const query of [summaryQuery, modelQuery, clientQuery]) {
+			expect(query).toContain("effective_submissions AS");
+			expect(query).toContain("s.submission_source <> 0");
+			expect(query).toContain("replacement.submission_source <> 0");
+		}
+		expect(response.body.total_tokens).toBe(2700);
+		expect(response.body.models[0].tokens).toBe(2700);
+		expect(response.body.clients[0].tokens).toBe(2700);
 	});
 });
