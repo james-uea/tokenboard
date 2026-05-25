@@ -1,6 +1,6 @@
 [package]
 name = "tokenboard-client"
-version = "1.0.13"
+version = "1.0.14"
 edition = "2021"
 description = "Desktop client that scans AI coding agent token usage and syncs to tokenboard leaderboard"
 

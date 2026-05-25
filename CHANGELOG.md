@@ -2,6 +2,12 @@
 
 All notable changes to Tokenboard will be documented in this file.
 
+## 1.0.14 - 2026-05-18
+
+- Fix Unix CLI auto-updates for protected install locations such as
+  `/usr/local/bin` by safely backing up the current binary and using `sudo`
+  when direct replacement is not permitted.
+
 ## 1.0.13 - 2026-05-18
 
 - Fix Gemini CLI scanning for current `.jsonl` chat session files while

@@ -45,18 +45,23 @@ router.get("/", async (req, res) => {
       badges.push(buildBadge("big-spender", "💰", "Big Spender", "Highest cumulative cost", row, (v) => `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 })}`));
     }
 
-    // ── ⚡ Speed Demon: biggest single-day tokens ──
-    {
-      const result = await pool.query(`
-        SELECT u.username, u.display_name, s.total_tokens::bigint AS value, s.date
-        FROM submissions s
-        JOIN users u ON u.id = s.user_id
-        ORDER BY s.total_tokens DESC LIMIT 1
-      `);
-      const row = result.rows[0];
-      badges.push(buildBadge("speed-demon", "⚡", "Speed Demon", "Biggest single-day token spike", row));
-      if (row) badges[badges.length - 1].detail = formatDate(row.date);
-    }
+	// ── ⚡ Speed Demon: biggest single-day tokens ──
+	{
+		const result = await pool.query(`
+		  WITH daily AS (
+		    SELECT s.user_id, s.date, SUM(s.total_tokens) AS total_tokens
+		    FROM submissions s
+		    GROUP BY s.user_id, s.date
+		  )
+		  SELECT u.username, u.display_name, d.total_tokens::bigint AS value, d.date
+		  FROM daily d
+		  JOIN users u ON u.id = d.user_id
+		  ORDER BY d.total_tokens DESC LIMIT 1
+		`);
+		const row = result.rows[0];
+		badges.push(buildBadge("speed-demon", "⚡", "Speed Demon", "Biggest single-day token spike", row));
+		if (row) badges[badges.length - 1].detail = formatDate(row.date);
+	}
 
     // ── 🦉 Wise Owl: highest reasoning ratio (min 100k reasoning) ──
     {
@@ -193,15 +198,16 @@ router.get("/", async (req, res) => {
       badges.push(buildBadge("marathoner", "🏃", "Marathoner", "Most active days on record", result.rows[0]));
     }
 
-    // ── 🌊 Rising Tide: biggest WoW token surge ──
-    {
-      const result = await pool.query(`
-        WITH daily AS (
-          SELECT s.user_id, s.date, s.total_tokens
-          FROM submissions s
-        ),
-        ranked AS (
-          SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY date) AS rn
+	// ── 🌊 Rising Tide: biggest WoW token surge ──
+	{
+		const result = await pool.query(`
+		  WITH daily AS (
+		    SELECT s.user_id, s.date, SUM(s.total_tokens) AS total_tokens
+		    FROM submissions s
+		    GROUP BY s.user_id, s.date
+		  ),
+		  ranked AS (
+		    SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY date) AS rn
           FROM daily
         ),
         wow AS (

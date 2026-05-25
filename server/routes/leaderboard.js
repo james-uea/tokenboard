@@ -118,6 +118,23 @@ router.get("/", async (req, res) => {
       JOIN users u ON u.id = s.user_id
       ${whereClause}
     ),
+    daily AS (
+      SELECT
+        user_id,
+        username,
+        display_name,
+        date,
+        SUM(total_tokens) AS total_tokens,
+        SUM(total_cost) AS total_cost,
+        SUM(input_tokens) AS input_tokens,
+        SUM(output_tokens) AS output_tokens,
+        SUM(cache_read_tokens) AS cache_read_tokens,
+        SUM(cache_write_tokens) AS cache_write_tokens,
+        SUM(reasoning_tokens) AS reasoning_tokens,
+        MAX(submitted_at) AS submitted_at
+      FROM filtered
+      GROUP BY user_id, username, display_name, date
+    ),
     aggregated AS (
       SELECT
         user_id,
@@ -133,7 +150,7 @@ router.get("/", async (req, res) => {
         MAX(submitted_at) AS last_updated,
         COUNT(DISTINCT date) AS active_days,
         COUNT(*)::int AS total_submissions
-      FROM filtered
+      FROM daily
       GROUP BY user_id, username, display_name
     ),
     model_totals AS (

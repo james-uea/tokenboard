@@ -175,6 +175,7 @@ router.post("/", authMiddleware, async (req, res) => {
 			.json({ error: `display_name must be <= ${MAX_DISPLAY_NAME_LENGTH} characters` });
 	}
 	const normalizedDisplayName = normalizedDisplayNameRaw;
+	const submissionSourceId = req.auth?.type === "user_api_token" ? req.auth.token_id : 0;
 
 	if (!normalizedDisplayName) {
 		return res.status(400).json({ error: "display_name cannot be empty" });
@@ -288,9 +289,9 @@ router.post("/", authMiddleware, async (req, res) => {
            (user_id, date, total_tokens, total_cost,
             input_tokens, output_tokens,
             cache_read_tokens, cache_write_tokens, reasoning_tokens,
-            models, clients)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         ON CONFLICT (user_id, date) DO UPDATE SET
+            submission_source, models, clients)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (user_id, date, submission_source) DO UPDATE SET
            total_tokens = EXCLUDED.total_tokens,
            total_cost = EXCLUDED.total_cost,
            input_tokens = EXCLUDED.input_tokens,
@@ -301,20 +302,21 @@ router.post("/", authMiddleware, async (req, res) => {
            models = EXCLUDED.models,
            clients = EXCLUDED.clients,
            submitted_at = NOW()`,
-				[
-					userId,
-					date,
-					total_tokens,
-					total_cost,
-					input_tokens,
-					output_tokens,
-					cache_read_tokens,
-					cache_write_tokens,
-					reasoning_tokens,
-					JSON.stringify(models),
-					JSON.stringify(clients),
-				]
-			);
+					[
+						userId,
+						date,
+						total_tokens,
+						total_cost,
+						input_tokens,
+						output_tokens,
+						cache_read_tokens,
+						cache_write_tokens,
+						reasoning_tokens,
+						submissionSourceId,
+						JSON.stringify(models),
+						JSON.stringify(clients),
+					]
+				);
 		}
 
 		await client.query("COMMIT");

@@ -439,7 +439,7 @@ describe("submission authentication", () => {
 				return Promise.resolve({ rows: [{ id: 7 }] });
 			}
 			if (String(sql).includes("INSERT INTO submissions")) {
-				const models = JSON.parse(params[9]);
+				const models = JSON.parse(params[10]);
 				expect(models["gpt-5.5|Hermes"].provider).toBe("Custom");
 				expect(JSON.stringify(models)).not.toContain("api.example.com");
 				return Promise.resolve({ rows: [] });

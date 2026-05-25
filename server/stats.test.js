@@ -189,4 +189,51 @@ describe("stats API timeline", () => {
 		expect(JSON.stringify(response.body.models)).not.toContain("api.one.example");
 		expect(JSON.stringify(response.body.models)).not.toContain("api.two.example");
 	});
+
+	it("aggregates source-split rows in user stats with daily grouping", async () => {
+		mockDb.query
+			.mockResolvedValueOnce({
+				rows: [
+					{
+						...summaryRow(),
+						total_submissions: 1,
+						active_days: 1,
+						total_tokens: "200",
+					},
+				],
+			})
+			.mockResolvedValueOnce({ rows: [timelineRow("2026-05-20", 200)] })
+			.mockResolvedValueOnce({ rows: [] })
+			.mockResolvedValueOnce({ rows: [] });
+
+		const response = await request(app).get("/api/stats/octocat").expect(200);
+		const timelineQuery = mockDb.query.mock.calls[1][0];
+
+		expect(response.body.total_tokens).toBe(200);
+		expect(response.body.timeline).toHaveLength(1);
+		expect(response.body.timeline[0].total_tokens).toBe(200);
+		expect(timelineQuery).toContain("GROUP BY s.date");
+		expect(timelineQuery).toContain("SUM(s.total_tokens)");
+	});
+
+	it("aggregates source-split rows in user diffs with daily grouping", async () => {
+		mockDb.query.mockResolvedValueOnce({
+			rows: [
+				timelineRow("2026-05-16", 120),
+				timelineRow("2026-05-17", 200),
+			],
+		});
+
+		const response = await request(app).get("/api/stats/octocat/diffs").expect(200);
+		const diffsQuery = mockDb.query.mock.calls[0][0];
+
+		expect(diffsQuery).toContain("WITH daily AS (");
+		expect(diffsQuery).toContain("GROUP BY s.date");
+		expect(diffsQuery).toContain("SUM(s.total_tokens)");
+		expect(response.body.diffs.day_over_day).toHaveLength(1);
+		expect(response.body.diffs.day_over_day[0]).toMatchObject({
+			date: "2026-05-17T00:00:00.000Z",
+			delta_total_tokens: 80,
+		});
+	});
 });
