@@ -383,8 +383,16 @@ describe("submission authentication", () => {
 				expect(params).toEqual([7, "octocat", "The Octocat"]);
 				return Promise.resolve({ rows: [{ id: 7 }] });
 			}
+			if (String(sql).includes("UPDATE submissions s")) {
+				expect(params).toEqual([7, "2026-05-08", 99]);
+				return Promise.resolve({ rows: [] });
+			}
 			if (String(sql).includes("INSERT INTO submissions")) {
 				expect(params[0]).toBe(7);
+				return Promise.resolve({ rows: [] });
+			}
+			if (String(sql).includes("DELETE FROM submissions")) {
+				expect(params).toEqual([7, "2026-05-08"]);
 				return Promise.resolve({ rows: [] });
 			}
 			throw new Error(`Unexpected submit query: ${sql}`);
@@ -438,10 +446,16 @@ describe("submission authentication", () => {
 			if (String(sql).includes("UPDATE users")) {
 				return Promise.resolve({ rows: [{ id: 7 }] });
 			}
+			if (String(sql).includes("UPDATE submissions s")) {
+				return Promise.resolve({ rows: [] });
+			}
 			if (String(sql).includes("INSERT INTO submissions")) {
 				const models = JSON.parse(params[10]);
 				expect(models["gpt-5.5|Hermes"].provider).toBe("Custom");
 				expect(JSON.stringify(models)).not.toContain("api.example.com");
+				return Promise.resolve({ rows: [] });
+			}
+			if (String(sql).includes("DELETE FROM submissions")) {
 				return Promise.resolve({ rows: [] });
 			}
 			throw new Error(`Unexpected submit query: ${sql}`);

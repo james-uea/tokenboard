@@ -284,6 +284,24 @@ router.post("/", authMiddleware, async (req, res) => {
 				clients,
 			} = contrib;
 
+			if (submissionSourceId !== 0) {
+				await client.query(
+					`UPDATE submissions s
+           SET submission_source = $3
+         WHERE s.user_id = $1
+           AND s.date = $2
+           AND s.submission_source = 0
+           AND NOT EXISTS (
+             SELECT 1
+             FROM submissions token_source
+             WHERE token_source.user_id = s.user_id
+               AND token_source.date = s.date
+               AND token_source.submission_source = $3
+           )`,
+					[userId, date, submissionSourceId],
+				);
+			}
+
 			await client.query(
 				`INSERT INTO submissions
            (user_id, date, total_tokens, total_cost,
@@ -317,6 +335,16 @@ router.post("/", authMiddleware, async (req, res) => {
 						JSON.stringify(clients),
 					]
 				);
+
+			if (submissionSourceId !== 0) {
+				await client.query(
+					`DELETE FROM submissions
+         WHERE user_id = $1
+           AND date = $2
+           AND submission_source = 0`,
+					[userId, date],
+				);
+			}
 		}
 
 		await client.query("COMMIT");

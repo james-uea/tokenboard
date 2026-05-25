@@ -189,6 +189,46 @@ async function main() {
 	});
 	console.log("✓ legacy submit");
 
+	const migratedUser = await pool.query(
+		`INSERT INTO users (username, display_name, github_id, github_login)
+   VALUES ($1, $2, $3, $4)
+   RETURNING id`,
+		["integration-migrated-token", "Integration Migrated Token", "999001", "integration-migrated-token"],
+	);
+	const migratedToken = await createUserApiToken(migratedUser.rows[0].id, "migrated-device");
+	await pool.query(
+		`INSERT INTO submissions
+     (user_id, date, total_tokens, total_cost, input_tokens, output_tokens,
+      cache_read_tokens, cache_write_tokens, reasoning_tokens, models, clients, submission_source)
+   VALUES ($1, $2, 90, 0.5, 30, 30, 30, 0, 0, $3, $4, 0)`,
+		[
+			migratedUser.rows[0].id,
+			allDates[5],
+			JSON.stringify(contribution(allDates[5], 90, "cli").models),
+			JSON.stringify(contribution(allDates[5], 90, "cli").clients),
+		],
+	);
+	await submitWithToken(migratedToken.token, {
+		username: "integration-migrated-token",
+		display_name: "Integration Migrated Token",
+		contributions: [contribution(allDates[5], 90, "cli")],
+	});
+	const migratedRows = await pool.query(
+		`SELECT submission_source, total_tokens
+     FROM submissions
+     WHERE user_id = $1 AND date = $2
+     ORDER BY submission_source`,
+		[migratedUser.rows[0].id, allDates[5]],
+	);
+	assert.deepEqual(
+		migratedRows.rows.map((row) => [row.submission_source, Number(row.total_tokens)]),
+		[[migratedToken.record.id, 90]],
+	);
+	const migratedStats = await requestJson("/api/stats/integration-migrated-token");
+	assert.equal(migratedStats.total_tokens, 90);
+	assert.equal(migratedStats.models[0].tokens, 90);
+	console.log("✓ migrated source-zero token resync does not double-count");
+
 	const unauthorized = await fetch(`${BASE_URL}/api/submit`, {
 		method: "POST",
 		headers: {

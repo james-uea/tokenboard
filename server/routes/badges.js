@@ -2,6 +2,19 @@ import { Router } from "express";
 import pool from "../db.js";
 
 const router = Router();
+const EFFECTIVE_SUBMISSIONS_WITH = `
+        WITH effective_submissions AS (
+          SELECT s.*
+          FROM submissions s
+          WHERE s.submission_source <> 0
+             OR NOT EXISTS (
+               SELECT 1
+               FROM submissions replacement
+               WHERE replacement.user_id = s.user_id
+                 AND replacement.date = s.date
+                 AND replacement.submission_source <> 0
+             )
+        )`;
 
 function toInt(value) {
   const parsed = Number.parseInt(value, 10);
@@ -23,8 +36,9 @@ router.get("/", async (req, res) => {
     // ── 👑 Token King: highest total_tokens ──
     {
       const result = await pool.query(`
+        ${EFFECTIVE_SUBMISSIONS_WITH}
         SELECT u.username, u.display_name, SUM(s.total_tokens)::bigint AS value
-        FROM submissions s
+        FROM effective_submissions s
         JOIN users u ON u.id = s.user_id
         GROUP BY u.id, u.username, u.display_name
         ORDER BY value DESC LIMIT 1
@@ -35,8 +49,9 @@ router.get("/", async (req, res) => {
     // ── 💰 Big Spender: highest total_cost ──
     {
       const result = await pool.query(`
+        ${EFFECTIVE_SUBMISSIONS_WITH}
         SELECT u.username, u.display_name, SUM(s.total_cost)::numeric(14,6) AS value
-        FROM submissions s
+        FROM effective_submissions s
         JOIN users u ON u.id = s.user_id
         GROUP BY u.id, u.username, u.display_name
         ORDER BY value DESC LIMIT 1
@@ -48,9 +63,10 @@ router.get("/", async (req, res) => {
 	// ── ⚡ Speed Demon: biggest single-day tokens ──
 	{
 		const result = await pool.query(`
-		  WITH daily AS (
+		  ${EFFECTIVE_SUBMISSIONS_WITH},
+		  daily AS (
 		    SELECT s.user_id, s.date, SUM(s.total_tokens) AS total_tokens
-		    FROM submissions s
+		    FROM effective_submissions s
 		    GROUP BY s.user_id, s.date
 		  )
 		  SELECT u.username, u.display_name, d.total_tokens::bigint AS value, d.date
@@ -66,13 +82,14 @@ router.get("/", async (req, res) => {
     // ── 🦉 Wise Owl: highest reasoning ratio (min 100k reasoning) ──
     {
       const result = await pool.query(`
+        ${EFFECTIVE_SUBMISSIONS_WITH}
         SELECT u.username, u.display_name,
                SUM(s.reasoning_tokens)::bigint AS reasoning,
                SUM(s.total_tokens)::bigint AS total,
                CASE WHEN SUM(s.total_tokens) > 0
                  THEN (SUM(s.reasoning_tokens)::numeric / SUM(s.total_tokens)::numeric * 100)
                  ELSE 0 END AS value
-        FROM submissions s
+        FROM effective_submissions s
         JOIN users u ON u.id = s.user_id
         GROUP BY u.id, u.username, u.display_name
         HAVING SUM(s.reasoning_tokens) >= 100000
@@ -86,13 +103,14 @@ router.get("/", async (req, res) => {
     // ── 🎯 Sniper: highest output:input ratio (min 100k output) ──
     {
       const result = await pool.query(`
+        ${EFFECTIVE_SUBMISSIONS_WITH}
         SELECT u.username, u.display_name,
                SUM(s.output_tokens)::bigint AS output,
                SUM(s.input_tokens)::bigint AS input,
                CASE WHEN SUM(s.input_tokens) > 0
                  THEN (SUM(s.output_tokens)::numeric / SUM(s.input_tokens)::numeric)
                  ELSE 0 END AS value
-        FROM submissions s
+        FROM effective_submissions s
         JOIN users u ON u.id = s.user_id
         GROUP BY u.id, u.username, u.display_name
         HAVING SUM(s.output_tokens) >= 100000
@@ -106,10 +124,11 @@ router.get("/", async (req, res) => {
     // ── 📚 Polyglot: most distinct models ──
     {
       const result = await pool.query(`
-        WITH model_counts AS (
+        ${EFFECTIVE_SUBMISSIONS_WITH},
+        model_counts AS (
           SELECT s.user_id,
                  COUNT(DISTINCT model_entry.key)::int AS value
-          FROM submissions s
+          FROM effective_submissions s
           LEFT JOIN LATERAL jsonb_each(
             CASE WHEN jsonb_typeof(s.models) = 'object' THEN s.models ELSE '{}'::jsonb END
           ) model_entry(key, value) ON TRUE
@@ -129,10 +148,11 @@ router.get("/", async (req, res) => {
       const client = await pool.connect();
       try {
         const result = await client.query(`
-          WITH user_dates AS (
+          ${EFFECTIVE_SUBMISSIONS_WITH},
+          user_dates AS (
             SELECT user_id, date,
                    date - (ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY date))::int AS streak_grp
-            FROM (SELECT DISTINCT user_id, date FROM submissions) sub_dates
+            FROM (SELECT DISTINCT user_id, date FROM effective_submissions) sub_dates
           ),
           streaks AS (
             SELECT user_id, COUNT(*)::int AS streak_len
@@ -158,8 +178,9 @@ router.get("/", async (req, res) => {
     // ── 💾 Cache Cow: most cache read tokens ──
     {
       const result = await pool.query(`
+        ${EFFECTIVE_SUBMISSIONS_WITH}
         SELECT u.username, u.display_name, SUM(s.cache_read_tokens)::bigint AS value
-        FROM submissions s
+        FROM effective_submissions s
         JOIN users u ON u.id = s.user_id
         GROUP BY u.id, u.username, u.display_name
         HAVING SUM(s.cache_read_tokens) > 0
@@ -171,11 +192,12 @@ router.get("/", async (req, res) => {
     // ── 💎 Cache Purist: highest cache read share ──
     {
       const result = await pool.query(`
+        ${EFFECTIVE_SUBMISSIONS_WITH}
         SELECT u.username, u.display_name,
                SUM(s.cache_read_tokens)::bigint AS cache_read,
                SUM(s.total_tokens)::bigint AS total,
                (SUM(s.cache_read_tokens)::numeric / SUM(s.total_tokens)::numeric * 100) AS value
-        FROM submissions s
+        FROM effective_submissions s
         JOIN users u ON u.id = s.user_id
         GROUP BY u.id, u.username, u.display_name
         HAVING SUM(s.total_tokens) > 0 AND SUM(s.cache_read_tokens) > 0
@@ -189,8 +211,9 @@ router.get("/", async (req, res) => {
     // ── 🏃 Marathoner: most active days ──
     {
       const result = await pool.query(`
+        ${EFFECTIVE_SUBMISSIONS_WITH}
         SELECT u.username, u.display_name, COUNT(DISTINCT s.date)::int AS value
-        FROM submissions s
+        FROM effective_submissions s
         JOIN users u ON u.id = s.user_id
         GROUP BY u.id, u.username, u.display_name
         ORDER BY value DESC LIMIT 1
@@ -201,9 +224,10 @@ router.get("/", async (req, res) => {
 	// ── 🌊 Rising Tide: biggest WoW token surge ──
 	{
 		const result = await pool.query(`
-		  WITH daily AS (
+		  ${EFFECTIVE_SUBMISSIONS_WITH},
+		  daily AS (
 		    SELECT s.user_id, s.date, SUM(s.total_tokens) AS total_tokens
-		    FROM submissions s
+		    FROM effective_submissions s
 		    GROUP BY s.user_id, s.date
 		  ),
 		  ranked AS (
