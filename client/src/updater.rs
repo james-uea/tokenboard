@@ -374,24 +374,129 @@ fn install_unix(staged: &Path, exe: &Path, backup: &Path) -> Result<()> {
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
 
-    fs::rename(exe, backup).with_context(|| {
+    match install_unix_direct(staged, exe, backup) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let direct_error = format!("{error:#}");
+            if !sudo_available() {
+                return Err(error).context(
+                    "Direct update install failed and sudo was not found for the protected install path",
+                );
+            }
+            install_unix_with_sudo(staged, exe, backup).with_context(|| {
+                format!("Direct update install failed ({direct_error}); sudo install also failed")
+            })
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn install_unix_direct(staged: &Path, exe: &Path, backup: &Path) -> Result<()> {
+    fs::copy(exe, backup).with_context(|| {
         format!(
-            "Failed to move current executable {} to {}",
+            "Failed to back up current executable {} to {}",
             exe.display(),
             backup.display()
         )
     })?;
+    set_executable(backup)?;
 
-    if let Err(error) = fs::rename(staged, exe) {
-        let _ = fs::rename(backup, exe);
+    let replacement = replacement_path(exe);
+    fs::copy(staged, &replacement)
+        .with_context(|| format!("Failed to copy update into {}", replacement.display()))?;
+    set_executable(&replacement)?;
+
+    if let Err(error) = fs::rename(&replacement, exe) {
+        let _ = fs::remove_file(&replacement);
         bail!(
-            "Failed to install update at {}; restored previous executable: {}",
+            "Failed to replace current executable {} with {}: {}",
             exe.display(),
+            staged.display(),
             error
         );
     }
 
+    let _ = fs::remove_file(staged);
+
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn replacement_path(exe: &Path) -> PathBuf {
+    let name = exe
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("tokenboard");
+    exe.with_file_name(format!(
+        ".{name}.update-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ))
+}
+
+#[cfg(not(windows))]
+fn sudo_available() -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| {
+            std::env::split_paths(&paths).any(|dir| {
+                let candidate = dir.join("sudo");
+                candidate.is_file()
+            })
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+fn install_unix_with_sudo(staged: &Path, exe: &Path, backup: &Path) -> Result<()> {
+    run_sudo("back up current executable", |command| {
+        command.arg("cp").arg("-p").arg(exe).arg(backup);
+    })?;
+
+    if let Err(error) = run_sudo("install updated executable", |command| {
+        command
+            .arg("install")
+            .arg("-m")
+            .arg("0755")
+            .arg(staged)
+            .arg(exe);
+    }) {
+        let _ = run_sudo("restore previous executable", |command| {
+            command
+                .arg("install")
+                .arg("-m")
+                .arg("0755")
+                .arg(backup)
+                .arg(exe);
+        });
+        return Err(error);
+    }
+
+    let _ = fs::remove_file(staged);
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn run_sudo<F>(action: &str, build: F) -> Result<()>
+where
+    F: FnOnce(&mut std::process::Command),
+{
+    use std::io::IsTerminal;
+
+    let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+    let mut command = std::process::Command::new("sudo");
+    if !interactive {
+        command.arg("-n");
+    }
+    build(&mut command);
+
+    let status = command
+        .status()
+        .with_context(|| format!("Failed to run sudo to {action}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        bail!("sudo failed to {action} with status {status}")
+    }
 }
 
 #[cfg(windows)]
@@ -633,6 +738,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(path.extension().and_then(OsStr::to_str), Some("exe"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_direct_install_replaces_executable_and_keeps_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("tokenboard");
+        let staged = dir.path().join("tokenboard-new");
+        let backup = dir.path().join("versions").join("tokenboard-before");
+        fs::create_dir_all(backup.parent().unwrap()).unwrap();
+        fs::write(&exe, "old").unwrap();
+        fs::write(&staged, "new").unwrap();
+        set_executable(&exe).unwrap();
+        set_executable(&staged).unwrap();
+
+        install_unix_direct(&staged, &exe, &backup).unwrap();
+
+        assert_eq!(fs::read_to_string(&exe).unwrap(), "new");
+        assert_eq!(fs::read_to_string(&backup).unwrap(), "old");
+        assert!(!staged.exists());
     }
 
     #[test]

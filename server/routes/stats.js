@@ -165,19 +165,32 @@ router.get("/:username/diffs", async (req, res) => {
 
 	try {
 		const timelineResult = await pool.query(
-			`SELECT
-         s.date,
-         s.total_tokens::bigint AS total_tokens,
-         s.total_cost::numeric(14,6) AS total_cost,
-         s.input_tokens::bigint AS input_tokens,
-         s.output_tokens::bigint AS output_tokens,
-         s.cache_read_tokens::bigint AS cache_read_tokens,
-         s.cache_write_tokens::bigint AS cache_write_tokens,
-         s.reasoning_tokens::bigint AS reasoning_tokens
-        FROM submissions s
-        JOIN users u ON u.id = s.user_id
-        WHERE u.username = $1
-        ORDER BY s.date ASC`,
+			`WITH daily AS (
+         SELECT
+           s.date,
+           SUM(s.total_tokens)::bigint AS total_tokens,
+           SUM(s.total_cost)::numeric(14,6) AS total_cost,
+           SUM(s.input_tokens)::bigint AS input_tokens,
+           SUM(s.output_tokens)::bigint AS output_tokens,
+           SUM(s.cache_read_tokens)::bigint AS cache_read_tokens,
+           SUM(s.cache_write_tokens)::bigint AS cache_write_tokens,
+           SUM(s.reasoning_tokens)::bigint AS reasoning_tokens
+         FROM submissions s
+         JOIN users u ON u.id = s.user_id
+         WHERE u.username = $1
+         GROUP BY s.date
+       )
+       SELECT
+         daily.date,
+         daily.total_tokens,
+         daily.total_cost,
+         daily.input_tokens,
+         daily.output_tokens,
+         daily.cache_read_tokens,
+         daily.cache_write_tokens,
+         daily.reasoning_tokens
+       FROM daily
+       ORDER BY daily.date ASC`,
 			[normalizedUsername],
 		);
 
@@ -212,23 +225,38 @@ router.get("/:username", async (req, res) => {
 
 	try {
 		const summaryResult = await pool.query(
-			`SELECT
+			`WITH daily AS (
+         SELECT
+           s.user_id,
+           s.date,
+           SUM(s.total_tokens)::bigint AS total_tokens,
+           SUM(s.total_cost)::numeric(14,6) AS total_cost,
+           SUM(s.input_tokens)::bigint AS input_tokens,
+           SUM(s.output_tokens)::bigint AS output_tokens,
+           SUM(s.cache_read_tokens)::bigint AS cache_read_tokens,
+           SUM(s.cache_write_tokens)::bigint AS cache_write_tokens,
+           SUM(s.reasoning_tokens)::bigint AS reasoning_tokens,
+           MAX(s.submitted_at) AS last_updated
+         FROM submissions s
+         GROUP BY s.user_id, s.date
+       )
+       SELECT
          u.username,
          COALESCE(NULLIF(BTRIM(u.display_name), ''), u.username) AS display_name,
-         COUNT(s.id)::int AS total_submissions,
-         COALESCE(SUM(s.total_tokens), 0)::bigint AS total_tokens,
-         COALESCE(SUM(s.total_cost), 0)::numeric(14,6) AS total_cost,
-        COALESCE(SUM(s.input_tokens), 0)::bigint AS input_tokens,
-        COALESCE(SUM(s.output_tokens), 0)::bigint AS output_tokens,
-        COALESCE(SUM(s.cache_read_tokens), 0)::bigint AS cache_read_tokens,
-        COALESCE(SUM(s.cache_write_tokens), 0)::bigint AS cache_write_tokens,
-        COALESCE(SUM(s.reasoning_tokens), 0)::bigint AS reasoning_tokens,
-         MAX(s.submitted_at) AS last_updated,
-         MIN(s.date) AS first_date,
-         MAX(s.date) AS last_date,
-         COUNT(DISTINCT s.date)::int AS active_days
+         COUNT(daily.date) FILTER (WHERE daily.date IS NOT NULL)::int AS total_submissions,
+         COALESCE(SUM(daily.total_tokens), 0)::bigint AS total_tokens,
+         COALESCE(SUM(daily.total_cost), 0)::numeric(14,6) AS total_cost,
+         COALESCE(SUM(daily.input_tokens), 0)::bigint AS input_tokens,
+         COALESCE(SUM(daily.output_tokens), 0)::bigint AS output_tokens,
+         COALESCE(SUM(daily.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+         COALESCE(SUM(daily.cache_write_tokens), 0)::bigint AS cache_write_tokens,
+         COALESCE(SUM(daily.reasoning_tokens), 0)::bigint AS reasoning_tokens,
+         MAX(daily.last_updated) AS last_updated,
+         MIN(daily.date) AS first_date,
+         MAX(daily.date) AS last_date,
+         COUNT(DISTINCT daily.date)::int AS active_days
        FROM users u
-       LEFT JOIN submissions s ON s.user_id = u.id
+       LEFT JOIN daily ON daily.user_id = u.id
        WHERE u.username = $1
        GROUP BY u.id, u.username, u.display_name`,
 			[normalizedUsername]
@@ -240,19 +268,32 @@ router.get("/:username", async (req, res) => {
 
 		const row = summaryResult.rows[0];
 		const timelineResult = await pool.query(
-			`SELECT
-         s.date,
-         s.total_tokens::bigint AS total_tokens,
-         s.total_cost::numeric(14,6) AS total_cost,
-         s.input_tokens::bigint AS input_tokens,
-         s.output_tokens::bigint AS output_tokens,
-         s.cache_read_tokens::bigint AS cache_read_tokens,
-         s.cache_write_tokens::bigint AS cache_write_tokens,
-         s.reasoning_tokens::bigint AS reasoning_tokens
-        FROM submissions s
-        JOIN users u ON u.id = s.user_id
-        WHERE u.username = $1
-        ORDER BY s.date ASC`,
+			`WITH daily AS (
+         SELECT
+           s.date,
+           SUM(s.total_tokens)::bigint AS total_tokens,
+           SUM(s.total_cost)::numeric(14,6) AS total_cost,
+           SUM(s.input_tokens)::bigint AS input_tokens,
+           SUM(s.output_tokens)::bigint AS output_tokens,
+           SUM(s.cache_read_tokens)::bigint AS cache_read_tokens,
+           SUM(s.cache_write_tokens)::bigint AS cache_write_tokens,
+           SUM(s.reasoning_tokens)::bigint AS reasoning_tokens
+         FROM submissions s
+         JOIN users u ON u.id = s.user_id
+         WHERE u.username = $1
+         GROUP BY s.date
+       )
+       SELECT
+         daily.date,
+         daily.total_tokens,
+         daily.total_cost,
+         daily.input_tokens,
+         daily.output_tokens,
+         daily.cache_read_tokens,
+         daily.cache_write_tokens,
+         daily.reasoning_tokens
+       FROM daily
+       ORDER BY daily.date ASC`,
 			[normalizedUsername]
 		);
 

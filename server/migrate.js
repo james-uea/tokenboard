@@ -41,9 +41,41 @@ CREATE TABLE IF NOT EXISTS submissions (
   reasoning_tokens BIGINT DEFAULT 0,
   models JSONB DEFAULT '{}',
   clients JSONB DEFAULT '{}',
+  submission_source INT NOT NULL DEFAULT 0,
   submitted_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, date)
+  UNIQUE(user_id, date, submission_source)
 );
+
+ALTER TABLE submissions
+  ADD COLUMN IF NOT EXISTS submission_source INT;
+ALTER TABLE submissions
+  ALTER COLUMN submission_source SET DEFAULT 0;
+
+UPDATE submissions
+SET submission_source = 0
+WHERE submission_source IS NULL;
+
+ALTER TABLE submissions
+  ALTER COLUMN submission_source SET NOT NULL;
+
+ALTER TABLE submissions
+  DROP CONSTRAINT IF EXISTS submissions_user_id_date_key;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'submissions'::regclass
+      AND conname = 'submissions_user_id_date_submission_source_key'
+      AND contype = 'u'
+  ) THEN
+    ALTER TABLE submissions
+      ADD CONSTRAINT submissions_user_id_date_submission_source_key
+      UNIQUE (user_id, date, submission_source);
+  END IF;
+END
+$$;
 
 ALTER TABLE submissions
   ALTER COLUMN models SET DEFAULT '{}'::jsonb,

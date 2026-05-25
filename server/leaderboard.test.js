@@ -61,11 +61,32 @@ describe("leaderboard API search", () => {
 			query: "OcTo",
 			entries: 1,
 		});
+
 		expect(response.body.leaderboard[0]).toMatchObject({
 			username: "octocat",
 			display_name: "The Octocat",
 			total_tokens: 1000,
 		});
+	});
+
+	it("aggregates submission rows per day before computing leaderboard totals", async () => {
+		mockDb.query.mockResolvedValueOnce({
+			rows: [
+				leaderboardRow({
+					total_tokens: "200",
+					total_submissions: "1",
+					active_days: "1",
+				}),
+			],
+		});
+
+		const response = await request(app).get("/api/leaderboard?q=octo").expect(200);
+		const [sql] = mockDb.query.mock.calls[0];
+
+		expect(sql).toContain("GROUP BY user_id, username, display_name, date");
+		expect(sql).toContain("SUM(total_tokens)::bigint AS total_tokens");
+		expect(sql).toContain("COUNT(*)::int AS total_submissions");
+		expect(response.body.leaderboard[0].total_submissions).toBe(1);
 	});
 
 	it("preserves period filtering and limit behavior while searching", async () => {
